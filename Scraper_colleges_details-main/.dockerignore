@@ -1,0 +1,33 @@
+# OS / Environment
+.DS_Store
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+.env
+
+# Git
+.git/
+.gitignore
+
+# IDEs
+.vscode/
+.idea/
+
+# Application Data (We do not want to bake existing data into the image)
+data/
+downloads/
+bulk_input_*.csv
+*_scrape.log
+
+# Docker
+Dockerfile
+.dockerignore
+docker-setup-guide.md
+
+# Debug
+debug_page.html

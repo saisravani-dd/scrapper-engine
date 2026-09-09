@@ -1,0 +1,54 @@
+services:
+  redis:
+    image: redis:alpine
+    container_name: scraper-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+  web:
+    build: .
+    image: college-scrapper:v4
+    container_name: scraper-web
+    restart: unless-stopped
+    command: uvicorn cms:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./downloads:/app/downloads
+      - ./crawl.py:/app/crawl.py
+      - ./tasks.py:/app/tasks.py
+      - ./cms.py:/app/cms.py
+      - ./templates:/app/templates
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=redis://redis:6379/0
+      - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    depends_on:
+      - redis
+
+  worker:
+    build: .
+    image: college-scrapper:v4
+    restart: unless-stopped
+    command: rq worker --url redis://redis:6379/0 default
+    volumes:
+      - ./data:/app/data
+      - ./downloads:/app/downloads
+      - ./crawl.py:/app/crawl.py
+      - ./tasks.py:/app/tasks.py
+      - ./cms.py:/app/cms.py
+      - ./templates:/app/templates
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=redis://redis:6379/0
+      - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    depends_on:
+      - redis
+
+volumes:
+  redis-data:

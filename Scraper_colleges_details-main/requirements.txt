@@ -1,0 +1,10 @@
+aiohttp==3.9.5
+beautifulsoup4==4.12.3
+fastapi==0.110.1
+Jinja2==3.1.6
+playwright==1.53.0
+playwright-stealth==2.0.3
+pydantic==2.11.5
+uvicorn==0.25.0
+redis==5.0.1
+rq==1.15.0

@@ -1,0 +1,1507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scraper CMS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        [v-cloak] { display: none; }
+        .group-header { cursor: pointer; user-select: none; }
+        .locked-overlay { position: absolute; inset: 0; background: rgba(255,255,255,0.7); z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
+
+        .toast-enter-active, .toast-leave-active { transition: all 0.4s ease; }
+        .toast-enter-from { opacity: 0; transform: translateX(100px); }
+        .toast-leave-to { opacity: 0; transform: translateX(100px); }
+    </style>
+</head>
+<body class="bg-gray-50 h-screen font-sans">
+    <div id="app" class="flex h-full" v-cloak>
+        
+        <!-- Sidebar -->
+        <div class="w-64 bg-white shadow-md flex flex-col h-full overflow-y-auto z-20 border-r border-gray-200 shrink-0">
+            <div class="p-4 bg-gray-800 text-white font-bold text-lg flex items-center justify-between">
+                <span>🏫 Scraper CMS</span>
+            </div>
+            
+            <div class="p-4 border-b border-gray-100 flex flex-col gap-2">
+                <button @click="openNewScrape" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded shadow transition flex items-center justify-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                    <span>+ New Scrape</span>
+                </button>
+                <button @click="openBulkUpload" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 px-4 rounded shadow transition flex items-center justify-center gap-2 text-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                    <span>📁 Bulk CSV Scrape</span>
+                </button>
+            </div>
+            
+            <div class="p-3 text-sm font-semibold text-gray-500 uppercase tracking-wider flex justify-between items-center">
+                <span>Colleges</span>
+            </div>
+            
+            <ul class="flex-1">
+                <li v-for="c in collegesList" :key="c.name" class="relative group">
+                    <button 
+                        @click="handleCollegeClick(c.name)" 
+                        @mousedown="startLongPress(c.name)"
+                        @mouseup="cancelLongPress"
+                        @mouseleave="cancelLongPress"
+                        @touchstart.passive="startLongPress(c.name)"
+                        @touchend="cancelLongPress"
+                        @touchcancel="cancelLongPress"
+                        @contextmenu.prevent="showDeleteModal(c.name)"
+                        :class="['w-full text-left px-4 py-3 border-b hover:bg-blue-50 transition-colors flex justify-between items-center select-none', selectedCollege === c.name ? 'bg-blue-100 border-blue-500 text-blue-700 font-medium' : 'text-gray-700']"
+                        title="Click to view, Long-press or Right-click to Delete"
+                    >
+                        <span class="truncate pr-2">[[ c.name ]]</span>
+                        <div class="flex items-center gap-1.5 shrink-0">
+                            <svg v-if="globalScraperStatus[c.name] === 'running'" class="animate-spin h-4 w-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            <!-- Delete action button -->
+                            <span 
+                                @click.stop="showDeleteModal(c.name)" 
+                                title="Delete college (or long-press)"
+                                class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-600 hover:bg-red-50 p-1 rounded transition-all cursor-pointer"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                            </span>
+                        </div>
+                    </button>
+                </li>
+                <li v-if="collegesList.length === 0" class="px-4 py-3 text-gray-400 text-sm italic">
+                    No colleges scraped yet.
+                </li>
+            </ul>
+            
+            
+            <div class="p-4 bg-gray-50 text-xs text-gray-500 border-t">
+                Global Storage:<br>
+                Data: [[ formatBytes(globalStorage.dataSizeBytes) ]]<br>
+                Downloads: [[ formatBytes(globalStorage.downloadsSizeBytes) ]]
+                <div class="mt-3 pt-3 border-t border-gray-200 text-center">
+                    <a href="/about" class="text-blue-600 hover:underline inline-flex items-center gap-1 font-medium">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        About Scraper CMS
+                    </a>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Main Content -->
+        <div class="flex-1 flex flex-col h-full overflow-hidden relative">
+            
+            <!-- Global Scraper Banner -->
+            <div v-if="anyScraperRunning" class="bg-blue-600 text-white px-4 py-2 text-sm font-medium flex justify-between items-center shadow-md z-30">
+                <div class="flex items-center gap-2">
+                    <svg class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    <span>Scraper is currently running in the background.</span>
+                </div>
+            </div>
+
+            <div v-if="loading" class="absolute inset-0 bg-white/80 z-50 flex items-center justify-center backdrop-blur-sm">
+                <div class="text-xl font-bold text-gray-600 animate-pulse flex flex-col items-center">
+                    <svg class="animate-spin h-10 w-10 text-blue-500 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    Loading data...
+                </div>
+            </div>
+
+            <!-- College View -->
+            <template v-if="selectedCollege || activeTab === 'scraper' || activeTab === 'bulk'">
+                
+                <!-- Header Tabs -->
+                <header class="bg-white shadow z-10 shrink-0">
+                    <div class="px-6 py-4 flex justify-between items-center border-b border-gray-200">
+                        <div>
+                            <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                                <span>[[ activeTab === 'bulk' ? '📁 Bulk CSV Scrape' : (selectedCollege || 'New Scrape') ]]</span>
+                                <span v-if="isLocked" class="ml-2 text-sm bg-orange-100 text-orange-800 px-2 py-1 rounded font-normal inline-flex items-center">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" /></svg>
+                                    Locked (Scraping)
+                                </span>
+                            </h1>
+                        </div>
+                        <div v-if="selectedCollege && activeTab !== 'scraper' && activeTab !== 'bulk'" class="flex items-center gap-3">
+                            <button @click="showDeleteModal(selectedCollege)" class="px-3 py-2 border border-red-200 text-red-600 hover:bg-red-50 rounded-lg font-medium text-sm transition flex items-center gap-1.5" title="Permanently delete this college">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                <span>Delete College</span>
+                            </button>
+                            <button @click="saveChanges" :disabled="saving || isLocked || !hasUnsavedChanges" :class="['px-4 py-2 rounded font-bold text-white transition', (saving || isLocked) ? 'bg-gray-400 cursor-not-allowed' : (hasUnsavedChanges ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700')]">
+                                [[ saving ? 'Saving...' : (hasUnsavedChanges ? 'Save Changes *' : 'Save Changes') ]]
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Tab Navigation -->
+                    <div class="px-6 flex gap-6 bg-gray-50 pt-2" v-if="selectedCollege">
+                        <button @click="activeTab = 'pages'" :class="['pb-2 px-1 border-b-2 font-medium text-sm transition-colors', activeTab === 'pages' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700']">
+                            Pages ([[ pages.length ]])
+                        </button>
+                        <button @click="activeTab = 'dashboard'" :class="['pb-2 px-1 border-b-2 font-medium text-sm transition-colors', activeTab === 'dashboard' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700']">
+                            Dashboard
+                        </button>
+                        <button @click="activeTab = 'files'; loadScrapedFiles()" :class="['pb-2 px-1 border-b-2 font-medium text-sm transition-colors', activeTab === 'files' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700']">
+                            📁 Files & Pages Archive
+                        </button>
+                        <button @click="activeTab = 'scraper'" :class="['pb-2 px-1 border-b-2 font-medium text-sm transition-colors', activeTab === 'scraper' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700']">
+                            Add URLs / Scraper
+                        </button>
+                        <button @click="activeTab = 'trash'" :class="['pb-2 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-1', activeTab === 'trash' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700']">
+                            Trash 
+                            <span v-if="trash.length > 0" class="bg-red-100 text-red-700 text-xs px-1.5 py-0.5 rounded-full">[[ trash.length ]]</span>
+                        </button>
+                    </div>
+                </header>
+                
+                <div class="flex-1 overflow-hidden relative">
+                    
+                    <!-- TAB: PAGES -->
+                    <div v-show="activeTab === 'pages'" class="h-full flex">
+                        
+                        <div v-if="isLocked" class="locked-overlay">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                            </svg>
+                            <h2 class="text-xl font-bold text-gray-700">College is Locked</h2>
+                            <p class="text-gray-500 mt-2">The scraper is currently running for this college. Editing is disabled.</p>
+                            <button @click="activeTab = 'scraper'" class="mt-4 px-4 py-2 bg-blue-100 text-blue-700 rounded hover:bg-blue-200">View Scraper Status</button>
+                        </div>
+                        
+                        <!-- Page List -->
+                        <div class="w-1/3 bg-gray-50 border-r border-gray-200 flex flex-col">
+                            <!-- Toolbar -->
+                            <div class="p-4 bg-white border-b border-gray-200 shadow-sm">
+                                <input type="text" v-model="searchQuery" placeholder="Search URLs or titles..." class="w-full px-3 py-2 border rounded focus:outline-none focus:ring-1 focus:ring-blue-500 mb-3 text-sm">
+                                
+                                <div class="flex justify-between items-center mb-2">
+                                    <div class="text-xs text-gray-500 font-medium">
+                                        [[ selectedPageUrls.length ]] selected
+                                    </div>
+                                    <button @click="deleteSelected" :disabled="selectedPageUrls.length === 0" class="px-3 py-1 bg-red-100 text-red-700 text-xs font-bold rounded hover:bg-red-200 disabled:opacity-50 transition-colors flex items-center gap-1">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
+                                        Move to Trash
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <!-- Grouped List -->
+                            <div class="overflow-y-auto flex-1">
+                                <div v-for="group in groupedPages" :key="group.prefix" class="border-b border-gray-100 last:border-0">
+                                    
+                                    <!-- Group Header -->
+                                    <div class="group-header bg-gray-100 px-3 py-2 flex items-center justify-between hover:bg-gray-200 transition-colors" @click="toggleGroup(group.prefix)">
+                                        <div class="flex items-center gap-2 overflow-hidden">
+                                            <svg :class="['h-4 w-4 text-gray-500 transition-transform', group.isExpanded ? 'rotate-90' : '']" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" /></svg>
+                                            <span class="font-bold text-sm text-gray-700 truncate" :title="group.prefix">[[ group.prefix ]]</span>
+                                            <span class="bg-white text-gray-500 text-xs px-1.5 py-0.5 rounded shadow-sm border font-medium">[[ group.pages.length ]]</span>
+                                        </div>
+                                        <div class="flex items-center" @click.stop>
+                                            <input type="checkbox" :checked="group.allSelected" @change="toggleSelectAll(group)" class="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500" title="Select all in group">
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Group Items -->
+                                    <div v-show="group.isExpanded" class="bg-white">
+                                        <div v-for="page in group.pages" :key="page.url" 
+                                             @click="selectPage(page)"
+                                             :class="['p-3 border-b border-gray-50 cursor-pointer transition-colors flex items-start gap-3', selectedPage && selectedPage.url === page.url ? 'bg-blue-50 border-l-4 border-l-blue-500' : 'hover:bg-gray-50']">
+                                            
+                                            <div class="pt-0.5" @click.stop>
+                                                <input type="checkbox" v-model="selectedPages[page.url]" class="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500">
+                                            </div>
+                                            
+                                            <div class="overflow-hidden flex-1">
+                                                <div class="font-medium text-gray-800 text-sm truncate" :title="page.title">[[ page.title || 'No Title' ]]</div>
+                                                <div class="text-xs text-blue-600 truncate" :title="page.url">[[ page.url.replace(/^.*\/\/[^\/]+/, '') ]]</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                </div>
+                                <div v-if="groupedPages.length === 0" class="text-center text-gray-500 py-8 text-sm">
+                                    No pages match your search.
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Page Editor -->
+                        <div class="w-2/3 bg-white overflow-y-auto p-6">
+                            <div v-if="selectedPage">
+                                <div class="mb-4">
+                                    <a :href="selectedPage.url" target="_blank" class="text-blue-600 hover:underline text-lg break-all font-medium inline-flex items-center gap-1">
+                                        [[ selectedPage.url ]] 
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z" /><path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z" /></svg>
+                                    </a>
+                                </div>
+                                
+                                <div class="mb-4">
+                                    <label class="block text-sm font-semibold text-gray-700 mb-1">Title</label>
+                                    <input type="text" v-model="selectedPage.title" @input="markChanged" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                </div>
+
+                                <div class="mb-4">
+                                    <label class="block text-sm font-semibold text-gray-700 mb-1 flex justify-between">
+                                        <span>Body Text Content</span>
+                                        <span class="font-normal text-gray-500">[[ selectedPage.bodyText.length ]] chars</span>
+                                    </label>
+                                    <textarea v-model="selectedPage.bodyText" @input="markChanged" rows="15" class="w-full px-3 py-2 border border-gray-300 rounded font-mono text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"></textarea>
+                                </div>
+                                
+                                <div class="mb-4" v-if="selectedPage.links && selectedPage.links.length > 0">
+                                    <label class="block text-sm font-semibold text-gray-700 mb-2">Links on this page ([[ selectedPage.links.length ]])</label>
+                                    <div class="bg-gray-50 p-4 rounded border max-h-64 overflow-y-auto">
+                                        <ul class="space-y-3">
+                                            <li v-for="(link, i) in selectedPage.links" :key="i" class="text-sm flex items-start gap-2 border-b border-gray-200 pb-3 last:border-0 last:pb-0">
+                                                <span v-if="link.type === 'document'" class="bg-purple-100 text-purple-800 text-xs px-2 py-0.5 rounded shrink-0 font-bold border border-purple-200">DOC</span>
+                                                <span v-else-if="link.type === 'internal'" class="bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded shrink-0 border border-blue-200">INT</span>
+                                                <span v-else class="bg-gray-200 text-gray-800 text-xs px-2 py-0.5 rounded shrink-0 border border-gray-300">EXT</span>
+                                                
+                                                <div class="overflow-hidden">
+                                                    <div class="font-medium text-gray-800" :title="link.text">[[ link.text || 'Unnamed Link' ]]</div>
+                                                    <a :href="link.href" target="_blank" class="text-blue-600 hover:underline text-xs block mt-0.5 truncate" :title="link.href">[[ link.href ]]</a>
+                                                    
+                                                    <div v-if="link.type === 'document'" class="mt-1.5 p-2 bg-white rounded border border-gray-200 text-xs">
+                                                        <div v-if="link.sectionHeading" class="text-gray-600 mb-1"><span class="font-semibold text-gray-500">Section:</span> [[ link.sectionHeading ]]</div>
+                                                        <div v-if="link.localPath" class="text-green-700 font-mono"><span class="font-semibold text-gray-500 font-sans">Path:</span> [[ link.localPath ]]</div>
+                                                    </div>
+                                                </div>
+                                            </li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                            <div v-else class="h-full flex flex-col items-center justify-center text-gray-400">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mb-4 text-gray-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                <p>Select a page from the list to view and edit.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TAB: TRASH -->
+                    <div v-show="activeTab === 'trash'" class="h-full bg-gray-50 p-6 overflow-y-auto">
+                        <div class="max-w-4xl mx-auto">
+                            <div class="flex justify-between items-center mb-6">
+                                <div>
+                                    <h2 class="text-xl font-bold text-gray-800">Trash Bin</h2>
+                                    <p class="text-sm text-gray-500">Pages here will be permanently deleted when you click "Save Changes".</p>
+                                </div>
+                                <button v-if="trash.length > 0" @click="emptyTrash" class="px-4 py-2 bg-red-100 text-red-700 font-medium rounded hover:bg-red-200 transition">
+                                    Empty Trash
+                                </button>
+                            </div>
+                            
+                            <div v-if="trash.length === 0" class="bg-white rounded shadow-sm p-12 text-center text-gray-400 border border-gray-200">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mx-auto mb-4 text-gray-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                <p class="text-lg">Trash is empty.</p>
+                            </div>
+                            
+                            <div v-else class="bg-white rounded shadow-sm border border-gray-200 overflow-hidden">
+                                <ul class="divide-y divide-gray-200">
+                                    <li v-for="page in trash" :key="page.url" class="p-4 hover:bg-gray-50 flex justify-between items-center">
+                                        <div class="overflow-hidden pr-4">
+                                            <div class="font-medium text-gray-800 truncate" :title="page.title">[[ page.title || 'No Title' ]]</div>
+                                            <div class="text-sm text-gray-500 truncate" :title="page.url">[[ page.url ]]</div>
+                                        </div>
+                                        <button @click="restoreFromTrash(page)" class="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded shadow-sm hover:bg-gray-50 shrink-0">
+                                            Restore
+                                        </button>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TAB: DASHBOARD -->
+                    <div v-show="activeTab === 'dashboard'" class="h-full bg-gray-100 p-6 overflow-y-auto">
+                        <div class="max-w-6xl mx-auto space-y-6" v-if="analytics">
+                            
+                            <!-- Hero Stats -->
+                            <div class="grid grid-cols-4 gap-4">
+                                <div class="bg-white p-4 rounded shadow border border-gray-200 border-t-4 border-t-blue-500">
+                                    <div class="text-sm text-gray-500 font-medium uppercase tracking-wide">Total Pages</div>
+                                    <div class="text-3xl font-bold text-gray-800 mt-1">[[ analytics.totalPages ]]</div>
+                                </div>
+                                <div class="bg-white p-4 rounded shadow border border-gray-200 border-t-4 border-t-purple-500">
+                                    <div class="text-sm text-gray-500 font-medium uppercase tracking-wide">Total Downloads</div>
+                                    <div class="text-3xl font-bold text-gray-800 mt-1">[[ analytics.totalDownloads ]]</div>
+                                </div>
+                                <div class="bg-white p-4 rounded shadow border border-gray-200 border-t-4 border-t-green-500">
+                                    <div class="text-sm text-gray-500 font-medium uppercase tracking-wide">Download Size</div>
+                                    <div class="text-3xl font-bold text-gray-800 mt-1">[[ formatBytes(analytics.totalDownloadSize) ]]</div>
+                                </div>
+                                <div class="bg-white p-4 rounded shadow border border-gray-200 border-t-4 border-t-orange-500">
+                                    <div class="text-sm text-gray-500 font-medium uppercase tracking-wide">Crawl Time</div>
+                                    <div class="text-3xl font-bold text-gray-800 mt-1">[[ analytics.crawlDurationSeconds ]]s</div>
+                                </div>
+                            </div>
+                            
+                            <!-- Charts Row 1 -->
+                            <div class="grid grid-cols-2 gap-6">
+                                <div class="bg-white p-5 rounded shadow border border-gray-200">
+                                    <h3 class="text-lg font-bold text-gray-700 mb-4">Pages by URL Path (Top 15)</h3>
+                                    <div class="h-64 relative">
+                                        <canvas id="urlGroupsChart"></canvas>
+                                    </div>
+                                </div>
+                                <div class="bg-white p-5 rounded shadow border border-gray-200">
+                                    <h3 class="text-lg font-bold text-gray-700 mb-4">Downloads by File Type</h3>
+                                    <div class="h-64 relative flex justify-center">
+                                        <canvas id="downloadTypesChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Charts Row 2 -->
+                            <div class="grid grid-cols-2 gap-6">
+                                <div class="bg-white p-5 rounded shadow border border-gray-200">
+                                    <h3 class="text-lg font-bold text-gray-700 mb-4">Crawl Depth Distribution</h3>
+                                    <div class="h-48 relative">
+                                        <canvas id="depthChart"></canvas>
+                                    </div>
+                                </div>
+                                <div class="bg-white p-5 rounded shadow border border-gray-200">
+                                    <h3 class="text-lg font-bold text-gray-700 mb-4">Storage Breakdown</h3>
+                                    <div class="flex items-center justify-between mt-8">
+                                        <div class="text-center">
+                                            <div class="text-4xl font-bold text-gray-700">[[ formatBytes(analytics.totalBodyLength) ]]</div>
+                                            <div class="text-sm text-gray-500 uppercase tracking-widest mt-2">Text Content</div>
+                                        </div>
+                                        <div class="text-3xl text-gray-300">VS</div>
+                                        <div class="text-center">
+                                            <div class="text-4xl font-bold text-purple-700">[[ formatBytes(analytics.totalDownloadSize) ]]</div>
+                                            <div class="text-sm text-purple-500 uppercase tracking-widest mt-2">Downloaded Files</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                        </div>
+                        <div v-else class="flex justify-center items-center h-full text-gray-400">
+                            Loading analytics...
+                        </div>
+                    </div>
+
+                                        <!-- TAB: FILES & ARCHIVE -->
+                    <div v-show="activeTab === 'files'" class="h-full bg-gray-50 p-8 overflow-y-auto">
+                        <div class="max-w-6xl mx-auto space-y-6">
+                            
+                            <!-- Header & Action Bar -->
+                            <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex flex-wrap justify-between items-center gap-4">
+                                <div>
+                                    <h2 class="text-2xl font-black text-gray-800 flex items-center gap-2">
+                                        📁 Scraped Pages & Files Directory
+                                        <span class="text-xs bg-indigo-100 text-indigo-800 font-bold px-2.5 py-1 rounded-full border border-indigo-200">[[ selectedCollege ]]</span>
+                                    </h2>
+                                    <p class="text-sm text-gray-500 mt-1">Every page is stored in dedicated individual files under <code class="bg-gray-100 px-1.5 py-0.5 rounded text-xs font-mono">data/pages/[[ selectedCollege ]]/</code></p>
+                                </div>
+                                
+                                <div class="flex items-center gap-3">
+                                    <button @click="resumeScrape" :disabled="isLocked" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg shadow transition flex items-center gap-2 disabled:opacity-50">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                        Resume Scrape
+                                    </button>
+                                    <button @click="exportMarkdown" :disabled="exportingMarkdown" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg shadow transition flex items-center gap-2 disabled:opacity-50">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                        [[ exportingMarkdown ? 'Exporting...' : 'Export All as Markdown (.md)' ]]
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <!-- Stat Cards -->
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex items-center gap-4">
+                                    <div class="w-12 h-12 bg-blue-100 text-blue-700 rounded-xl flex items-center justify-center font-bold text-xl">📄</div>
+                                    <div>
+                                        <div class="text-2xl font-black text-gray-800">[[ scrapedFiles.pageFilesCount || 0 ]]</div>
+                                        <div class="text-xs text-gray-500 font-semibold uppercase tracking-wider">Individual Page Files</div>
+                                    </div>
+                                </div>
+                                <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex items-center gap-4">
+                                    <div class="w-12 h-12 bg-purple-100 text-purple-700 rounded-xl flex items-center justify-center font-bold text-xl">📥</div>
+                                    <div>
+                                        <div class="text-2xl font-black text-purple-800">[[ scrapedFiles.downloadedFilesCount || 0 ]]</div>
+                                        <div class="text-xs text-gray-500 font-semibold uppercase tracking-wider">Downloaded Docs & PDFs</div>
+                                    </div>
+                                </div>
+                                <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex items-center gap-4">
+                                    <div class="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-xl flex items-center justify-center font-bold text-xl">💾</div>
+                                    <div>
+                                        <div class="text-2xl font-black text-emerald-800">[[ formatBytes(totalPageFilesSize) ]]</div>
+                                        <div class="text-xs text-gray-500 font-semibold uppercase tracking-wider">Total Scraped Size</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Search & Page Files Table -->
+                            <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                                <div class="p-4 border-b border-gray-200 flex justify-between items-center gap-4 bg-gray-50">
+                                    <div class="font-bold text-gray-700 text-sm flex items-center gap-2">
+                                        <span>Individual Page Files</span>
+                                        <span class="text-xs bg-gray-200 text-gray-700 px-2 py-0.5 rounded-full font-mono">[[ filteredPageFiles.length ]] files</span>
+                                    </div>
+                                    <input type="text" v-model="pageFileSearch" placeholder="Filter page files or URLs..." class="px-3 py-1.5 border border-gray-300 rounded-lg text-xs w-64 focus:ring-1 focus:ring-blue-500 focus:outline-none">
+                                </div>
+                                
+                                <div class="max-h-96 overflow-y-auto">
+                                    <table class="w-full text-left text-xs">
+                                        <thead class="bg-gray-100 text-gray-600 font-bold border-b border-gray-200 sticky top-0">
+                                            <tr>
+                                                <th class="p-3">File Name</th>
+                                                <th class="p-3">Page Title</th>
+                                                <th class="p-3">Original URL</th>
+                                                <th class="p-3 text-right">Size</th>
+                                                <th class="p-3 text-center">Links</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-100">
+                                            <tr v-for="f in filteredPageFiles" :key="f.fileName" class="hover:bg-blue-50/50 transition">
+                                                <td class="p-3 font-mono font-semibold text-gray-800 truncate max-w-[200px]" :title="f.fileName">
+                                                    [[ f.fileName ]]
+                                                </td>
+                                                <td class="p-3 font-medium text-gray-700 truncate max-w-[220px]" :title="f.title">
+                                                    [[ f.title || 'Untitled Page' ]]
+                                                </td>
+                                                <td class="p-3 truncate max-w-[250px]">
+                                                    <a :href="f.url" target="_blank" class="text-blue-600 hover:underline" :title="f.url">[[ f.url ]]</a>
+                                                </td>
+                                                <td class="p-3 text-right text-gray-500 font-mono">
+                                                    [[ formatBytes(f.sizeBytes) ]]
+                                                </td>
+                                                <td class="p-3 text-center">
+                                                    <span class="bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded text-[11px] font-bold">[[ f.linksCount ]]</span>
+                                                </td>
+                                            </tr>
+                                            <tr v-if="filteredPageFiles.length === 0">
+                                                <td colspan="5" class="p-8 text-center text-gray-400">
+                                                    No page files match your filter.
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                            <!-- Downloaded Files Table -->
+                            <div v-if="scrapedFiles.downloadedFiles && scrapedFiles.downloadedFiles.length > 0" class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                                <div class="p-4 border-b border-gray-200 bg-gray-50 font-bold text-gray-700 text-sm flex items-center justify-between">
+                                    <span>Downloaded Documents & PDFs</span>
+                                    <span class="text-xs bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full font-mono">[[ scrapedFiles.downloadedFiles.length ]] docs</span>
+                                </div>
+                                <div class="max-h-64 overflow-y-auto">
+                                    <table class="w-full text-left text-xs">
+                                        <thead class="bg-gray-100 text-gray-600 font-bold border-b border-gray-200 sticky top-0">
+                                            <tr>
+                                                <th class="p-3">File Name</th>
+                                                <th class="p-3 text-right">Size</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-100">
+                                            <tr v-for="d in scrapedFiles.downloadedFiles" :key="d.fileName" class="hover:bg-purple-50/50 transition">
+                                                <td class="p-3 font-mono text-purple-900 font-medium">[[ d.fileName ]]</td>
+                                                <td class="p-3 text-right text-gray-500 font-mono">[[ formatBytes(d.sizeBytes) ]]</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                        </div>
+                    </div>
+
+<!-- TAB: SCRAPER -->
+                    <div v-show="activeTab === 'scraper'" class="h-full bg-white p-8 overflow-y-auto">
+                        <div class="max-w-3xl mx-auto">
+                            
+                            <h2 class="text-2xl font-bold text-gray-800 mb-6">Run Web Scraper</h2>
+                            
+                            <!-- Scraper Status Panel -->
+                            <div v-if="scraperStatus" class="mb-8 rounded-xl border border-gray-300 shadow-lg overflow-hidden transition-all"
+                                :class="{
+                                    'bg-blue-50/50 border-blue-300': scraperStatus.status === 'running',
+                                    'bg-green-50/50 border-green-300': scraperStatus.status === 'complete',
+                                    'bg-red-50/50 border-red-300': scraperStatus.status === 'error' || scraperStatus.status === 'failed',
+                                    'bg-amber-50/50 border-amber-300': scraperStatus.status === 'queued'
+                                }">
+                                
+                                <!-- Status Header & Stats -->
+                                <div class="p-6 border-b border-gray-200/80 bg-white flex flex-wrap justify-between items-center gap-4">
+                                    <div class="flex items-center gap-3">
+                                        <div v-if="scraperStatus.status === 'running'" class="relative flex h-5 w-5">
+                                          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                          <span class="relative inline-flex rounded-full h-5 w-5 bg-blue-500"></span>
+                                        </div>
+                                        <svg v-else-if="scraperStatus.status === 'complete'" class="h-6 w-6 text-green-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                        <svg v-else-if="scraperStatus.status === 'queued'" class="h-6 w-6 text-amber-500 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                        <svg v-else class="h-6 w-6 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                        
+                                        <div>
+                                            <div class="flex items-center gap-2">
+                                                <h3 class="text-xl font-black tracking-tight" :class="{'text-blue-800': scraperStatus.status === 'running', 'text-green-800': scraperStatus.status === 'complete', 'text-red-800': scraperStatus.status === 'error', 'text-amber-800': scraperStatus.status === 'queued'}">
+                                                    [[ scraperStatus.status.toUpperCase() ]]
+                                                </h3>
+                                                <span class="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-0.5 rounded-full border border-blue-200 flex items-center gap-1">
+                                                    ⚡ 8 Simultaneous Tabs
+                                                </span>
+                                            </div>
+                                            <p class="text-xs text-gray-500 mt-0.5">[[ scraperStatus.message ]]</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="flex items-center gap-2">
+                                        <button v-if="scraperStatus.status === 'running'" @click="stopScrape" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-sm rounded-lg shadow transition flex items-center gap-1.5">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><rect x="6" y="6" width="8" height="8" rx="1" /></svg>
+                                            Stop Scrape
+                                        </button>
+                                        <button v-if="scraperStatus.status === 'complete'" @click="loadCollege(selectedCollege)" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-bold text-sm rounded-lg shadow transition flex items-center gap-1.5">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                            View Scraped Pages
+                                        </button>
+                                        <button @click="copyLogs" class="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-semibold transition border border-gray-300">
+                                            📋 [[ copyLogsText ]]
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                <!-- Terminal Window -->
+                                <div class="bg-slate-950 p-4 border-t border-slate-800 font-mono text-xs">
+                                    <!-- Window Title Bar -->
+                                    <div class="flex justify-between items-center pb-3 mb-3 border-b border-slate-800 text-slate-400">
+                                        <div class="flex items-center gap-2">
+                                            <span class="w-3 h-3 rounded-full bg-red-500/80 inline-block"></span>
+                                            <span class="w-3 h-3 rounded-full bg-yellow-500/80 inline-block"></span>
+                                            <span class="w-3 h-3 rounded-full bg-green-500/80 inline-block"></span>
+                                            <span class="ml-2 text-xs font-semibold text-slate-300">Live Crawl Stream (Playwright Stealth • 8 Tabs)</span>
+                                        </div>
+                                        <div class="flex items-center gap-3 text-[11px]">
+                                            <label class="flex items-center gap-1 cursor-pointer select-none text-slate-300 hover:text-white">
+                                                <input type="checkbox" v-model="autoScrollLogs" class="rounded text-blue-600 focus:ring-0">
+                                                <span>Auto-Scroll</span>
+                                            </label>
+                                            <span class="text-slate-500">|</span>
+                                            <span>[[ (scraperStatus.logs || []).length ]] lines</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Log Output Console -->
+                                    <div ref="logContainer" class="h-80 overflow-y-auto space-y-1 select-text scroll-smooth pr-2">
+                                        <div v-for="(log, idx) in scraperStatus.logs" :key="idx" :class="getLogClass(log)" class="leading-relaxed break-all">
+                                            [[ log ]]
+                                        </div>
+                                        <div v-if="!scraperStatus.logs || scraperStatus.logs.length === 0" class="text-slate-600 italic py-4 text-center">
+                                            Waiting for scraper logs to arrive...
+                                        </div>
+                                        <div v-if="scraperStatus.status === 'running'" class="mt-2 text-emerald-400 animate-pulse font-bold flex items-center gap-1">
+                                            <span class="inline-block w-2 h-4 bg-emerald-400"></span>
+                                            <span class="text-xs text-slate-400">Scraper active with 8 simultaneous tabs...</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Form -->
+                            <div class="bg-gray-50 p-6 rounded shadow-sm border border-gray-200" :class="{'opacity-50 pointer-events-none': scraperStatus && scraperStatus.status === 'running'}">
+                                <div v-for="(job, index) in scraperForm.jobs" :key="index" class="p-4 bg-white border rounded mb-4 shadow-sm relative">
+                                    <button v-if="scraperForm.jobs.length > 1" @click="scraperForm.jobs.splice(index, 1)" class="absolute top-2 right-2 text-red-500 hover:text-red-700 p-1">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                                    </button>
+                                    <h3 class="font-bold text-gray-700 mb-3 border-b pb-2">College Job [[ index + 1 ]]</h3>
+                                    
+                                    <div class="mb-4">
+                                        <label class="block text-sm font-bold text-gray-700 mb-2">College ID / Name</label>
+                                        <input type="text" v-model="job.collegeName" placeholder="e.g. mycollege" class="w-full px-4 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                    </div>
+                                    
+                                    <div class="mb-2">
+                                        <label class="block text-sm font-bold text-gray-700 mb-2">Seed URLs (One per line)</label>
+                                        <textarea v-model="job.seedUrls" rows="3" placeholder="https://college.edu/" class="w-full px-4 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none"></textarea>
+                                    </div>
+                                </div>
+                                
+                                <div class="flex flex-wrap items-center gap-3 mb-6">
+                                    <button @click="scraperForm.jobs.push({collegeName: '', seedUrls: ''})" class="px-4 py-2 bg-gray-200 text-gray-700 font-medium rounded hover:bg-gray-300 transition text-sm flex items-center gap-1.5">
+                                        <span>+ Add Another College</span>
+                                    </button>
+                                    <label class="px-4 py-2 bg-blue-50 text-blue-700 border border-blue-200 font-medium rounded hover:bg-blue-100 transition text-sm cursor-pointer inline-flex items-center gap-2 shadow-sm">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                                        <span>📁 Import CSV File (e.g. input.csv)</span>
+                                        <input type="file" accept=".csv" @change="handleCsvUpload" class="hidden">
+                                    </label>
+                                </div>
+                                
+                                <button @click="startScrape" :disabled="!scraperForm.jobs.some(j => j.collegeName && j.seedUrls)" class="w-full py-3 bg-gray-800 text-white font-bold rounded shadow hover:bg-gray-900 disabled:opacity-50 transition flex items-center justify-center gap-2">
+                                    <span>🚀 Start Bulk Background Scrape ([[ scraperForm.jobs.filter(j => j.collegeName && j.seedUrls).length ]] colleges)</span>
+                                </button>
+                            </div>
+                            
+                        </div>
+                    </div>
+
+                    <!-- TAB: BULK CSV SCRAPER -->
+                    <div v-show="activeTab === 'bulk'" class="h-full bg-slate-50 p-8 overflow-y-auto">
+                        <div class="max-w-4xl mx-auto space-y-6">
+                            <div>
+                                <h2 class="text-2xl font-bold text-gray-800">📁 Bulk College Scraper (CSV Import)</h2>
+                                <p class="text-sm text-gray-500 mt-1">
+                                    Upload a CSV file containing 10, 100, or 1,000+ colleges to enqueue all of them into the Redis distributed task queue.
+                                </p>
+                            </div>
+
+                            <!-- Live Redis Batch Progress Card -->
+                            <div v-if="queueStatus && (queueStatus.queueLength > 0 || queueStatus.workersBusy > 0)" class="bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-950 text-white rounded-2xl p-6 shadow-xl border border-indigo-800 space-y-4">
+                                <div class="flex flex-wrap justify-between items-center gap-4">
+                                    <div class="flex items-center gap-3">
+                                        <div class="relative flex h-4 w-4">
+                                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                            <span class="relative inline-flex rounded-full h-4 w-4 bg-emerald-500"></span>
+                                        </div>
+                                        <div>
+                                            <h3 class="text-lg font-bold flex items-center gap-2">
+                                                <span>Batch Crawl in Progress</span>
+                                                <span class="text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full font-mono font-normal">
+                                                    [[ queueStatus.workersBusy ]] / [[ queueStatus.workersTotal ]] Workers Active
+                                                </span>
+                                            </h3>
+                                            <p class="text-xs text-slate-300 mt-0.5">Scraping college websites, extracting links, and downloading PDFs concurrently.</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <div class="bg-white/10 border border-white/15 px-3 py-1.5 rounded-xl text-center">
+                                            <div class="text-[10px] text-slate-300 uppercase font-semibold">Remaining Queue</div>
+                                            <div class="text-base font-bold text-amber-300">[[ queueStatus.queueLength ]] Colleges</div>
+                                        </div>
+                                        <div class="bg-white/10 border border-white/15 px-3 py-1.5 rounded-xl text-center">
+                                            <div class="text-[10px] text-slate-300 uppercase font-semibold">Ready in Sidebar</div>
+                                            <div class="text-base font-bold text-emerald-300">[[ collegesList.length ]] Colleges</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Queued Colleges List -->
+                                <div v-if="queueStatus.queuedJobIds && queueStatus.queuedJobIds.length > 0" class="bg-black/30 rounded-xl p-3 border border-white/10 text-xs">
+                                    <div class="text-[11px] font-semibold text-indigo-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                                        <svg class="animate-spin h-3 w-3 text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                        Next In Waiting Line (Redis Queue):
+                                    </div>
+                                    <div class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                                        <span v-for="jobId in queueStatus.queuedJobIds" :key="jobId" class="bg-white/10 px-2 py-0.5 rounded text-[11px] font-mono text-slate-200">
+                                            [[ jobId.replace('scrape_', '').replace(/_/g, ' ') ]]
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div class="text-[11px] text-slate-400 flex items-center justify-between pt-1 border-t border-white/10">
+                                    <span>💡 Each worker runs 8 browser tabs. Completed colleges automatically appear in the left sidebar!</span>
+                                </div>
+                            </div>
+
+                            <!-- Upload Dropzone Card -->
+                            <div class="border-2 border-dashed border-emerald-300 hover:border-emerald-500 bg-white rounded-2xl p-8 text-center transition-all shadow-sm">
+                                <input type="file" id="bulkCsvInputDedicated" accept=".csv" @change="handleCsvUpload" class="hidden">
+                                <label for="bulkCsvInputDedicated" class="cursor-pointer flex flex-col items-center justify-center gap-3">
+                                    <div class="w-16 h-16 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600 shadow-inner">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <span class="text-base font-bold text-emerald-700 hover:underline">Click here to select your CSV file</span>
+                                        <span class="text-gray-500 text-sm"> (e.g. <code>input.csv</code>)</span>
+                                    </div>
+                                    <p class="text-xs text-gray-400">CSV format: First column is College Name, second column is Seed URL</p>
+                                </label>
+                            </div>
+
+                            <!-- Preview Table if jobs imported -->
+                            <div v-if="scraperForm.jobs.length > 0 && scraperForm.jobs[0].collegeName" class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                                <div class="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+                                    <div class="flex items-center gap-2">
+                                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                                        <span class="font-bold text-gray-800 text-sm">
+                                            Found [[ scraperForm.jobs.length ]] Colleges in CSV
+                                        </span>
+                                    </div>
+                                    <button @click="scraperForm.jobs = [{ collegeName: '', seedUrls: '' }]" class="text-xs text-red-600 hover:underline font-medium">
+                                        Clear List
+                                    </button>
+                                </div>
+                                <div class="max-h-80 overflow-y-auto">
+                                    <table class="w-full text-left text-xs">
+                                        <thead class="bg-gray-100 text-gray-600 font-bold border-b border-gray-200 sticky top-0">
+                                            <tr>
+                                                <th class="p-3">#</th>
+                                                <th class="p-3">College Name</th>
+                                                <th class="p-3">Seed URLs</th>
+                                                <th class="p-3">Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-100">
+                                            <tr v-for="(job, i) in scraperForm.jobs" :key="i" class="hover:bg-emerald-50/40 transition">
+                                                <td class="p-3 font-mono text-gray-400">[[ i + 1 ]]</td>
+                                                <td class="p-3 font-bold text-gray-800 font-mono">[[ job.collegeName ]]</td>
+                                                <td class="p-3 font-mono text-gray-600 truncate max-w-xs">
+                                                    [[ job.seedUrls.split('\n')[0] ]]
+                                                    <span v-if="job.seedUrls.split('\n').length > 1" class="text-[11px] text-emerald-600 font-sans font-medium ml-1">(+[[ job.seedUrls.split('\n').length - 1 ]] more)</span>
+                                                </td>
+                                                <td class="p-3">
+                                                    <span class="px-2 py-0.5 rounded text-[11px] font-semibold" :class="globalScraperStatus[job.collegeName] === 'running' ? 'bg-blue-100 text-blue-800' : (globalScraperStatus[job.collegeName] === 'queued' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600')">
+                                                        [[ (globalScraperStatus[job.collegeName] || 'Ready').toUpperCase() ]]
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="p-4 bg-gray-50 border-t border-gray-200 flex flex-wrap justify-between items-center gap-3">
+                                    <span class="text-xs text-gray-500">Every college is queued as an independent job in Redis. Workers process them in parallel.</span>
+                                    <button @click="startScrape" class="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow transition flex items-center gap-2 text-sm">
+                                        <span>🚀 Launch Bulk Scrape ([[ scraperForm.jobs.length ]] Colleges)</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </template>
+            <div v-else-if="!loading" class="flex-1 flex flex-col items-center justify-center bg-gray-50">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-24 w-24 text-gray-300 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+                <h2 class="text-2xl font-bold text-gray-500">Welcome to Scraper CMS</h2>
+                <p class="text-gray-400 mt-2">Select a college from the sidebar or start a New Scrape.</p>
+            </div>
+        <!-- Delete College Confirmation Modal -->
+        <div v-if="deleteModalOpen" class="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-xs transition-opacity p-4">
+            <div class="bg-white rounded-2xl shadow-2xl border border-red-100 max-w-md w-full overflow-hidden">
+                <div class="p-6 text-center">
+                    <div class="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-2">Delete College Data?</h3>
+                    <p class="text-sm text-gray-600 mb-4">
+                        Are you sure you want to permanently delete <strong class="text-red-700 font-mono">[[ collegeToDelete ]]</strong>?
+                    </p>
+                    <div class="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-800 text-left mb-6 space-y-1 font-mono">
+                        <div class="font-sans font-bold text-red-900">⚠️ This will delete permanently:</div>
+                        <div>• Scraped dataset: [[ collegeToDelete ]].json</div>
+                        <div>• Individual page JSON archive</div>
+                        <div>• Downloaded PDFs & documents</div>
+                    </div>
+                    <div class="flex gap-3 justify-center">
+                        <button @click="deleteModalOpen = false; collegeToDelete = null" :disabled="deletingCollege" class="px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-xl transition text-sm">
+                            Cancel
+                        </button>
+                        <button @click="confirmDeleteCollege" :disabled="deletingCollege" class="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow transition text-sm flex items-center gap-2">
+                            <svg v-if="deletingCollege" class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            <span>[[ deletingCollege ? 'Deleting...' : 'Yes, Delete Permanently' ]]</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast Notifications -->
+        <div class="fixed bottom-6 right-6 z-[100] space-y-3 max-w-md">
+            <transition-group name="toast">
+                <div v-for="t in toasts" :key="t.id" 
+                    :class="['px-5 py-3 rounded-xl shadow-xl border font-medium text-sm flex items-center gap-3 backdrop-blur-sm transition-all',
+                        t.type === 'success' ? 'bg-green-50/95 border-green-300 text-green-800' : 
+                        t.type === 'error' ? 'bg-red-50/95 border-red-300 text-red-800' : 
+                        'bg-blue-50/95 border-blue-300 text-blue-800']">
+                    <span v-if="t.type === 'success'">✅</span>
+                    <span v-else-if="t.type === 'error'">❌</span>
+                    <span v-else>ℹ️</span>
+                    <span>[[ t.message ]]</span>
+                    <button @click="toasts = toasts.filter(x => x.id !== t.id)" class="ml-auto text-gray-400 hover:text-gray-700 font-bold">&times;</button>
+                </div>
+            </transition-group>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue
+
+        createApp({
+            delimiters: ['[[', ']]'],
+            data() {
+                return {
+                    selectedCollege: null,
+                    collegesList: [],
+                    collegeData: null,
+                    pages: [],
+                    trash: [],
+                    selectedPage: null,
+                    loading: false,
+                    saving: false,
+                    hasUnsavedChanges: false,
+                    searchQuery: '',
+                    
+                    activeTab: 'pages', // pages, trash, dashboard, scraper
+                    
+                    scraperForm: { jobs: [{ collegeName: '', seedUrls: '' }] },
+                    scraperStatus: null,
+                    autoScrollLogs: true,
+                    scrapedFiles: { pageFilesCount: 0, pageFiles: [], downloadedFilesCount: 0, downloadedFiles: [] },
+                    pageFileSearch: '',
+                    exportingMarkdown: false,
+                    copyLogsText: 'Copy Logs',
+                    
+                    deleteModalOpen: false,
+                    collegeToDelete: null,
+                    deletingCollege: false,
+                    longPressTimer: null,
+                    longPressTriggered: false,
+                    
+                    analytics: null,
+                    charts: {},
+                    
+                    globalStorage: { dataSizeBytes: 0, downloadsSizeBytes: 0 },
+                    globalScraperStatus: {},
+                    queueStatus: null,
+                    
+                    expandedGroups: {},
+                    selectedPages: {},
+                    
+                    statusPollInterval: null,
+                    toasts: [],
+                    toastIdCounter: 0,
+                    globalPollInterval: null
+                }
+            },
+            computed: {
+                filteredPageFiles() {
+                    if (!this.scrapedFiles || !this.scrapedFiles.pageFiles) return [];
+                    if (!this.pageFileSearch.trim()) return this.scrapedFiles.pageFiles;
+                    const q = this.pageFileSearch.toLowerCase();
+                    return this.scrapedFiles.pageFiles.filter(f => 
+                        (f.fileName && f.fileName.toLowerCase().includes(q)) ||
+                        (f.title && f.title.toLowerCase().includes(q)) ||
+                        (f.url && f.url.toLowerCase().includes(q))
+                    );
+                },
+                totalPageFilesSize() {
+                    if (!this.scrapedFiles || !this.scrapedFiles.pageFiles) return 0;
+                    return this.scrapedFiles.pageFiles.reduce((sum, f) => sum + (f.sizeBytes || 0), 0);
+                },
+                isLocked() {
+                    return this.selectedCollege && this.globalScraperStatus[this.selectedCollege] === 'running';
+                },
+                anyScraperRunning() {
+                    return Object.values(this.globalScraperStatus).includes('running');
+                },
+                filteredPages() {
+                    if (!this.searchQuery) return this.pages;
+                    const q = this.searchQuery.toLowerCase();
+                    return this.pages.filter(p => 
+                        p.url.toLowerCase().includes(q) || 
+                        (p.title && p.title.toLowerCase().includes(q))
+                    );
+                },
+                groupedPages() {
+                    const groups = {};
+                    this.filteredPages.forEach(p => {
+                        try {
+                            const urlObj = new URL(p.url);
+                            const pathParts = urlObj.pathname.split('/').filter(x => x);
+                            const prefix = pathParts.length > 0 ? `/${pathParts[0]}/` : '/';
+                            if (!groups[prefix]) groups[prefix] = [];
+                            groups[prefix].push(p);
+                        } catch(e) {
+                            if (!groups['/']) groups['/'] = [];
+                            groups['/'].push(p);
+                        }
+                    });
+                    
+                    return Object.keys(groups).sort().map(prefix => {
+                        const groupPages = groups[prefix];
+                        // Check if all pages in this group are selected
+                        const allSelected = groupPages.length > 0 && groupPages.every(p => this.selectedPages[p.url]);
+                        
+                        // Default expanded state is false, unless explicitly set
+                        const isExpanded = this.expandedGroups[prefix] === true;
+                        
+                        return {
+                            prefix,
+                            pages: groupPages,
+                            isExpanded,
+                            allSelected
+                        };
+                    }).sort((a,b) => b.pages.length - a.pages.length); // Sort by largest group first
+                },
+                selectedPageUrls() {
+                    return Object.keys(this.selectedPages).filter(url => this.selectedPages[url]);
+                }
+            },
+            mounted() {
+                this.fetchColleges();
+                this.fetchStorageInfo();
+                this.fetchQueueStatus();
+                this.pollAllScraperStatuses();
+                this.globalPollInterval = setInterval(this.pollAllScraperStatuses, 3000);
+            },
+            beforeUnmount() {
+                if (this.statusPollInterval) clearInterval(this.statusPollInterval);
+                if (this.globalPollInterval) clearInterval(this.globalPollInterval);
+                this.destroyCharts();
+            },
+            watch: {
+                activeTab(newTab) {
+                    if (newTab === 'dashboard' && this.selectedCollege && !this.analytics) {
+                        this.fetchAnalytics();
+                    }
+                    if (newTab === 'dashboard' && this.analytics) {
+                        this.$nextTick(this.renderCharts);
+                    }
+                },
+                'scraperStatus.logs': {
+                    deep: true,
+                    handler() {
+                        if (this.autoScrollLogs) {
+                            this.$nextTick(() => {
+                                const el = this.$refs.logContainer;
+                                if (el) el.scrollTop = el.scrollHeight;
+                            });
+                        }
+                    }
+                }
+            },
+            methods: {
+                async loadScrapedFiles() {
+                    if (!this.selectedCollege) return;
+                    try {
+                        const res = await fetch(`/api/scraped-files/${this.selectedCollege}`);
+                        if (res.ok) {
+                            this.scrapedFiles = await res.json();
+                        }
+                    } catch (e) {
+                        console.error("Failed to load scraped files", e);
+                    }
+                },
+                async stopScrape() {
+                    if (!this.selectedCollege) return;
+                    if (!confirm('Are you sure you want to stop the scraper? It can be resumed later.')) return;
+                    try {
+                        const res = await fetch('/api/scrape/stop/' + this.selectedCollege, { method: 'POST' });
+                        const data = await res.json();
+                        this.showToast(data.message || 'Scraper stopped.', 'info');
+                        this.globalScraperStatus[this.selectedCollege] = 'stopped';
+                        if (this.statusPollInterval) {
+                            clearInterval(this.statusPollInterval);
+                            this.statusPollInterval = null;
+                        }
+                        await this.pollStatus(this.selectedCollege);
+                    } catch (e) {
+                        this.showToast('Failed to stop scraper: ' + e, 'error');
+                    }
+                },
+                async resumeScrape() {
+                    if (!this.selectedCollege) return;
+                    if (confirm(`Resume scraping for ${this.selectedCollege} from the last checkpoint?`)) {
+                        this.activeTab = "scraper";
+                        try {
+                            const res = await fetch("/api/scrape", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                    collegeName: this.selectedCollege,
+                                    seedUrls: (this.collegeData && this.collegeData.startUrls) || []
+                                })
+                            });
+                            const data = await res.json();
+                            this.startPollingStatus(this.selectedCollege);
+                        } catch (e) {
+                            alert("Failed to resume scraper: " + e);
+                        }
+                    }
+                },
+                async exportMarkdown() {
+                    if (!this.selectedCollege) return;
+                    this.exportingMarkdown = true;
+                    try {
+                        const res = await fetch(`/api/export/markdown/${this.selectedCollege}`, { method: "POST" });
+                        const data = await res.json();
+                        if (res.ok) {
+                            alert(`✅ Export Complete!\n\nSaved ${data.filesCount} Markdown files to:\n${data.exportPath}`);
+                        } else {
+                            alert("Export failed: " + (data.detail || data.message));
+                        }
+                    } catch (e) {
+                        alert("Export error: " + e);
+                    } finally {
+                        this.exportingMarkdown = false;
+                    }
+                },
+                showToast(message, type = 'info') {
+                    const id = ++this.toastIdCounter;
+                    this.toasts.push({ id, message, type });
+                    setTimeout(() => {
+                        this.toasts = this.toasts.filter(t => t.id !== id);
+                    }, 4000);
+                },
+                formatBytes(bytes, decimals = 2) {
+                    if (!+bytes) return '0 Bytes';
+                    const k = 1024;
+                    const dm = decimals < 0 ? 0 : decimals;
+                    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+                },
+                async fetchColleges() {
+                    try {
+                        const res = await fetch('/api/colleges');
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.collegesList = data.colleges || [];
+                        }
+                    } catch(e) {
+                        console.error('Failed to fetch colleges list', e);
+                    }
+                },
+                async fetchStorageInfo() {
+                    try {
+                        const res = await fetch('/api/storage-info');
+                        if (res.ok) this.globalStorage = await res.json();
+                    } catch(e) {}
+                },
+                async fetchQueueStatus() {
+                    try {
+                        const res = await fetch('/api/queue-status');
+                        if (res.ok) this.queueStatus = await res.json();
+                    } catch(e) {}
+                },
+                async pollAllScraperStatuses() {
+                    await this.fetchColleges();
+                    await this.fetchQueueStatus();
+                    await this.fetchStorageInfo();
+                    const colleges = this.collegesList.map(c => c.name);
+                    for (const c of colleges) {
+                        try {
+                            const res = await fetch(`/api/scrape-status/${c}`);
+                            if (res.ok) {
+                                const data = await res.json();
+                                this.globalScraperStatus[c] = data.status;
+                            }
+                        } catch(e) {}
+                    }
+                },
+                async loadCollege(collegeName) {
+                    if (this.hasUnsavedChanges) {
+                        if (!confirm("You have unsaved changes. Discard them?")) return;
+                    }
+                    
+                    this.selectedCollege = collegeName;
+                    this.loading = true;
+                    this.selectedPage = null;
+                    this.hasUnsavedChanges = false;
+                    this.searchQuery = '';
+                    this.trash = [];
+                    this.selectedPages = {};
+                    this.expandedGroups = {};
+                    this.analytics = null;
+                    this.activeTab = 'pages';
+                    // scraperForm uses jobs[] array, not single collegeName
+                    
+                    if (this.statusPollInterval) {
+                        clearInterval(this.statusPollInterval);
+                        this.statusPollInterval = null;
+                    }
+                    this.scraperStatus = null;
+                    
+                    // Check if running
+                    await this.pollAllScraperStatuses();
+                    if (this.isLocked) {
+                        this.activeTab = 'scraper';
+                        this.startPollingStatus(collegeName);
+                    }
+                    
+                    try {
+                        const res = await fetch(`/api/college/${collegeName}`);
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.collegeData = data;
+                            this.pages = JSON.parse(JSON.stringify(data.pages || []));
+                        } else {
+                            if (!this.isLocked) alert("Failed to load data.");
+                        }
+                    } catch (e) {
+                        console.error(e);
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                openNewScrape() {
+                    this.selectedCollege = null;
+                    this.activeTab = 'scraper';
+                    this.scraperForm = { jobs: [{ collegeName: '', seedUrls: '' }] };
+                    this.scraperStatus = null;
+                    if (this.statusPollInterval) clearInterval(this.statusPollInterval);
+                },
+                openBulkUpload() {
+                    this.selectedCollege = null;
+                    this.activeTab = 'bulk';
+                    this.scraperStatus = null;
+                    if (this.statusPollInterval) clearInterval(this.statusPollInterval);
+                },
+                startLongPress(collegeName) {
+                    this.longPressTriggered = false;
+                    this.cancelLongPress();
+                    this.longPressTimer = setTimeout(() => {
+                        this.longPressTriggered = true;
+                        this.showDeleteModal(collegeName);
+                    }, 650); // 650ms long press
+                },
+                cancelLongPress() {
+                    if (this.longPressTimer) {
+                        clearTimeout(this.longPressTimer);
+                        this.longPressTimer = null;
+                    }
+                },
+                handleCollegeClick(collegeName) {
+                    if (this.longPressTriggered) {
+                        this.longPressTriggered = false;
+                        return;
+                    }
+                    this.loadCollege(collegeName);
+                },
+                showDeleteModal(collegeName) {
+                    this.cancelLongPress();
+                    this.collegeToDelete = collegeName;
+                    this.deleteModalOpen = true;
+                },
+                async confirmDeleteCollege() {
+                    if (!this.collegeToDelete) return;
+                    const name = this.collegeToDelete;
+                    this.deletingCollege = true;
+                    try {
+                        const res = await fetch(`/api/college/${name}`, { method: 'DELETE' });
+                        const data = await res.json();
+                        if (res.ok) {
+                            this.deleteModalOpen = false;
+                            this.collegeToDelete = null;
+                            if (this.selectedCollege === name) {
+                                this.selectedCollege = null;
+                                this.collegeData = null;
+                                this.pages = [];
+                                this.activeTab = 'scraper';
+                            }
+                            await this.fetchColleges();
+                            await this.fetchStorageInfo();
+                            this.showToast(`Deleted ${name} successfully!`, 'success');
+                        } else {
+                            this.showToast(`Failed to delete: ${data.detail || data.message}`, 'error');
+                        }
+                    } catch (e) {
+                        console.error('Delete error:', e);
+                        this.showToast(`Error deleting college: ${e}`, 'error');
+                    } finally {
+                        this.deletingCollege = false;
+                    }
+                },
+                toggleGroup(prefix) {
+                    this.expandedGroups[prefix] = !this.expandedGroups[prefix];
+                },
+                toggleSelectAll(group) {
+                    const newValue = !group.allSelected;
+                    group.pages.forEach(p => {
+                        this.selectedPages[p.url] = newValue;
+                    });
+                },
+                selectPage(page) {
+                    this.selectedPage = page;
+                },
+                deleteSelected() {
+                    const urlsToDelete = this.selectedPageUrls;
+                    if (urlsToDelete.length === 0) return;
+                    
+                    if (confirm(`Move ${urlsToDelete.length} pages to trash?`)) {
+                        // Move to trash
+                        const toTrash = this.pages.filter(p => urlsToDelete.includes(p.url));
+                        this.trash.push(...toTrash);
+                        
+                        // Remove from pages
+                        this.pages = this.pages.filter(p => !urlsToDelete.includes(p.url));
+                        
+                        // Clear selection
+                        this.selectedPages = {};
+                        
+                        // Clear selected page if it was deleted
+                        if (this.selectedPage && urlsToDelete.includes(this.selectedPage.url)) {
+                            this.selectedPage = null;
+                        }
+                        
+                        this.markChanged();
+                    }
+                },
+                restoreFromTrash(page) {
+                    this.pages.push(page);
+                    this.trash = this.trash.filter(p => p.url !== page.url);
+                    this.markChanged();
+                },
+                emptyTrash() {
+                    if (confirm("Are you sure? These pages will be permanently deleted on next Save.")) {
+                        this.trash = [];
+                        this.markChanged();
+                    }
+                },
+                markChanged() {
+                    this.hasUnsavedChanges = true;
+                },
+                async saveChanges() {
+                    this.saving = true;
+                    try {
+                        const res = await fetch(`/api/college/${this.selectedCollege}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ pages: this.pages })
+                        });
+                        if (res.ok) {
+                            this.hasUnsavedChanges = false;
+                            this.trash = []; // Trash is committed
+                            alert("Changes saved successfully! Orphaned downloads have been deleted.");
+                            this.fetchColleges();
+                this.fetchStorageInfo(); // refresh storage
+                            if (this.analytics) this.fetchAnalytics(); // refresh analytics
+                        } else {
+                            alert("Failed to save changes.");
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        alert("Error saving changes.");
+                    } finally {
+                        this.saving = false;
+                    }
+                },
+                async startScrape() {
+                    try {
+                        const validJobs = this.scraperForm.jobs.filter(j => j.collegeName.trim() && j.seedUrls.trim());
+                        if (validJobs.length === 0) return;
+                        
+                        const formattedJobs = validJobs.map(j => ({
+                            collegeName: j.collegeName,
+                            seedUrls: j.seedUrls.split("\\n").filter(u => u.trim())
+                        }));
+                        
+                        const res = await fetch('/api/scrape/bulk', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ jobs: formattedJobs })
+                        });
+                        
+                        const data = await res.json();
+                        if (res.ok || data.status === 'started') {
+                            validJobs.forEach(j => {
+                                this.globalScraperStatus[j.collegeName] = 'queued';
+                                this.startPollingStatus(j.collegeName);
+                            });
+                            this.showToast("Bulk scrape started successfully!", "success");
+                            this.scraperForm.jobs = [{ collegeName: '', seedUrls: '' }];
+                        } else {
+                            this.showToast(data.message || "Failed to start scraper", "error");
+                        }
+                    } catch(e) {
+                        this.showToast("Error starting scraper.", "error");
+                        console.error(e);
+                    }
+                },
+                handleCsvUpload(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const text = e.target.result;
+                        const lines = text.split(/\r?\n/).filter(line => line.trim());
+                        if (lines.length === 0) {
+                            this.showToast("CSV file is empty.", "error");
+                            return;
+                        }
+
+                        // Determine if first row is a header
+                        const firstLine = lines[0].toLowerCase();
+                        const startIndex = (firstLine.includes("college") || firstLine.includes("url") || firstLine.includes("name")) ? 1 : 0;
+                        const collegeMap = {};
+
+                        // RFC 4180 compliant CSV line tokenizer (handles quoted fields with commas)
+                        const parseCsvLine = (line) => {
+                            const cells = [];
+                            let cur = "";
+                            let inQuotes = false;
+                            for (let i = 0; i < line.length; i++) {
+                                const ch = line[i];
+                                if (ch === '"') {
+                                    inQuotes = !inQuotes;
+                                } else if (ch === ',' && !inQuotes) {
+                                    cells.push(cur.trim());
+                                    cur = "";
+                                } else {
+                                    cur += ch;
+                                }
+                            }
+                            cells.push(cur.trim());
+                            return cells;
+                        };
+
+                        for (let i = startIndex; i < lines.length; i++) {
+                            const parts = parseCsvLine(lines[i]);
+                            if (parts.length >= 2) {
+                                let rawName = parts[0].replace(/^["']|["']$/g, '').trim();
+                                let rawUrl = parts.slice(1).join(",").replace(/^["']|["']$/g, '').trim();
+                                const cName = rawName.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "");
+                                const url = rawUrl;
+                                if (cName && url) {
+                                    if (!collegeMap[cName]) collegeMap[cName] = [];
+                                    if (!collegeMap[cName].includes(url)) collegeMap[cName].push(url);
+                                }
+                            }
+                        }
+
+                        const newJobs = Object.keys(collegeMap).map(cName => ({
+                            collegeName: cName,
+                            seedUrls: collegeMap[cName].join("\n")
+                        }));
+
+                        if (newJobs.length > 0) {
+                            this.scraperForm.jobs = newJobs;
+                            this.showToast(`Imported ${newJobs.length} colleges from CSV! Ready to scrape.`, "success");
+                        } else {
+                            this.showToast("Could not find valid CollegeName,SeedURL rows in CSV.", "error");
+                        }
+                        // Reset input so re-selecting same file triggers change
+                        event.target.value = "";
+                    };
+                    reader.readAsText(file);
+                },
+                startPollingStatus(collegeName) {
+                    if (this.statusPollInterval) clearInterval(this.statusPollInterval);
+                    this.pollStatus(collegeName);
+                    this.statusPollInterval = setInterval(() => this.pollStatus(collegeName), 2000);
+                },
+                                getLogClass(log) {
+                    if (!log) return 'text-slate-400';
+                    if (log.includes('📥 Downloaded')) return 'text-emerald-400 font-semibold bg-emerald-950/20 px-1 py-0.5 rounded';
+                    if (log.includes('❌ Error') || log.includes('failed') || log.includes('Exception') || log.includes('Timeout')) return 'text-rose-400 font-bold bg-rose-950/30 px-1 py-0.5 rounded';
+                    if (log.includes('Depth') || log.includes('pages |')) return 'text-sky-300 font-medium';
+                    if (log.includes('🌐 Starting') || log.includes('⚡ Concurrency') || log.includes('📌 Allowed')) return 'text-amber-300 font-bold';
+                    if (log.includes('✅ Crawl complete')) return 'text-green-300 font-extrabold bg-green-950/60 px-2 py-1 rounded border border-green-800 block';
+                    if (log.includes('DEBUG:')) return 'text-slate-500 text-[11px]';
+                    return 'text-slate-200';
+                },
+                copyLogs() {
+                    if (!this.scraperStatus || !this.scraperStatus.logs) return;
+                    const text = this.scraperStatus.logs.join('\n');
+                    navigator.clipboard.writeText(text);
+                    this.copyLogsText = 'Copied!';
+                    setTimeout(() => { this.copyLogsText = 'Copy Logs'; }, 2000);
+                },
+                async pollStatus(collegeName) {
+                    try {
+                        const res = await fetch(`/api/scrape-status/${collegeName}`);
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.scraperStatus = data;
+                            this.globalScraperStatus[collegeName] = data.status;
+                            
+                            if (data.status === 'complete' || data.status === 'error' || data.status === 'failed' || data.status === 'stopped') {
+                                clearInterval(this.statusPollInterval);
+                                this.statusPollInterval = null;
+                                // Refresh sidebar list after scrape finishes
+                                this.fetchColleges();
+                            }
+                        }
+                    } catch(e) {}
+                },
+                async fetchAnalytics() {
+                    if (!this.selectedCollege) return;
+                    try {
+                        const res = await fetch(`/api/analytics/${this.selectedCollege}`);
+                        if (res.ok) {
+                            this.analytics = await res.json();
+                            this.$nextTick(this.renderCharts);
+                        }
+                    } catch(e) {
+                        console.error("Failed to load analytics");
+                    }
+                },
+                destroyCharts() {
+                    Object.values(this.charts).forEach(c => c.destroy());
+                    this.charts = {};
+                },
+                renderCharts() {
+                    if (!this.analytics) return;
+                    this.destroyCharts();
+                    
+                    // Helper to generate colors
+                    const getColors = (count) => {
+                        const baseColors = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#06b6d4', '#6366f1'];
+                        return Array.from({length: count}).map((_, i) => baseColors[i % baseColors.length]);
+                    };
+
+                    // URL Groups Chart
+                    const groupKeys = Object.keys(this.analytics.urlGroups);
+                    const groupVals = Object.values(this.analytics.urlGroups);
+                    if (document.getElementById('urlGroupsChart')) {
+                        this.charts.urlGroups = new Chart(document.getElementById('urlGroupsChart'), {
+                            type: 'bar',
+                            data: {
+                                labels: groupKeys.map(k => k.length > 20 ? k.substring(0,20)+'...' : k),
+                                datasets: [{
+                                    label: 'Pages',
+                                    data: groupVals,
+                                    backgroundColor: '#3b82f6',
+                                    borderRadius: 4
+                                }]
+                            },
+                            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: {display: false} } }
+                        });
+                    }
+                    
+                    // Download Types Chart
+                    const dlKeys = Object.keys(this.analytics.downloadTypes);
+                    const dlVals = Object.values(this.analytics.downloadTypes);
+                    if (document.getElementById('downloadTypesChart') && dlKeys.length > 0) {
+                        this.charts.downloadTypes = new Chart(document.getElementById('downloadTypesChart'), {
+                            type: 'doughnut',
+                            data: {
+                                labels: dlKeys,
+                                datasets: [{
+                                    data: dlVals,
+                                    backgroundColor: getColors(dlKeys.length),
+                                    borderWidth: 0
+                                }]
+                            },
+                            options: { responsive: true, maintainAspectRatio: false }
+                        });
+                    }
+
+                    // Depth Chart
+                    const depthKeys = Object.keys(this.analytics.depthDistribution).sort((a,b) => parseInt(a)-parseInt(b));
+                    const depthVals = depthKeys.map(k => this.analytics.depthDistribution[k]);
+                    if (document.getElementById('depthChart')) {
+                        this.charts.depthChart = new Chart(document.getElementById('depthChart'), {
+                            type: 'bar',
+                            data: {
+                                labels: depthKeys.map(k => `Depth ${k}`),
+                                datasets: [{
+                                    label: 'Pages',
+                                    data: depthVals,
+                                    backgroundColor: '#8b5cf6',
+                                    borderRadius: 4
+                                }]
+                            },
+                            options: { 
+                                indexAxis: 'y', 
+                                responsive: true, 
+                                maintainAspectRatio: false,
+                                plugins: { legend: {display: false} }
+                            }
+                        });
+                    }
+                }
+            }
+        }).mount('#app')
+    </script>
+</body>
+</html>
