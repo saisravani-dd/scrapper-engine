@@ -162,10 +162,12 @@ def get_project_dir():
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     """Serve the main CMS page."""
+    os.makedirs(DATA_DIR, exist_ok=True)
     colleges = []
-    for f in sorted(os.listdir(DATA_DIR)):
-        if f.endswith(".json") and not f.endswith("_status.json"):
-            colleges.append(f.replace(".json", ""))
+    if os.path.exists(DATA_DIR):
+        for f in sorted(os.listdir(DATA_DIR)):
+            if f.endswith(".json") and not f.endswith("_status.json"):
+                colleges.append(f.replace(".json", ""))
     return templates.TemplateResponse("index.html", {"request": request, "colleges": colleges})
 
 
@@ -189,17 +191,19 @@ async def get_about_md():
 @app.get("/api/colleges")
 async def list_colleges():
     """Return list of all scraped colleges (for dynamic sidebar refresh)."""
+    os.makedirs(DATA_DIR, exist_ok=True)
     colleges = []
-    for f in sorted(os.listdir(DATA_DIR)):
-        if f.endswith(".json") and not f.endswith("_status.json"):
-            name = f.replace(".json", "")
-            file_path = os.path.join(DATA_DIR, f)
-            stat = os.stat(file_path)
-            colleges.append({
-                "name": name,
-                "sizeBytes": stat.st_size,
-                "updatedAt": stat.st_mtime,
-            })
+    if os.path.exists(DATA_DIR):
+        for f in sorted(os.listdir(DATA_DIR)):
+            if f.endswith(".json") and not f.endswith("_status.json"):
+                name = f.replace(".json", "")
+                file_path = os.path.join(DATA_DIR, f)
+                stat = os.stat(file_path)
+                colleges.append({
+                    "name": name,
+                    "sizeBytes": stat.st_size,
+                    "updatedAt": stat.st_mtime,
+                })
     return {"colleges": colleges}
 
 
@@ -648,12 +652,14 @@ async def get_scrape_status(college_name: str):
 @app.get("/api/all-statuses")
 async def get_all_statuses():
     """Return all college statuses in a single fast JSON response."""
+    os.makedirs(DATA_DIR, exist_ok=True)
     statuses = {}
-    for f in os.listdir(DATA_DIR):
-        if f.endswith("_status.json"):
-            c_name = f.replace("_status.json", "")
-            sdata = safe_read_json(os.path.join(DATA_DIR, f), {})
-            statuses[c_name] = sdata.get("status", "idle")
+    if os.path.exists(DATA_DIR):
+        for f in os.listdir(DATA_DIR):
+            if f.endswith("_status.json"):
+                c_name = f.replace("_status.json", "")
+                sdata = safe_read_json(os.path.join(DATA_DIR, f), {})
+                statuses[c_name] = sdata.get("status", "idle")
     return {"statuses": statuses}
 
 
