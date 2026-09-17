@@ -715,11 +715,19 @@
                     <!-- TAB: BULK CSV SCRAPER -->
                     <div v-show="activeTab === 'bulk'" class="h-full bg-slate-50 p-8 overflow-y-auto">
                         <div class="max-w-4xl mx-auto space-y-6">
-                            <div>
-                                <h2 class="text-2xl font-bold text-gray-800">📁 Bulk College Scraper (CSV Import)</h2>
-                                <p class="text-sm text-gray-500 mt-1">
-                                    Upload a CSV file containing 10, 100, or 1,000+ colleges to enqueue all of them into the Redis distributed task queue.
-                                </p>
+                            <div class="flex flex-wrap justify-between items-start gap-4">
+                                <div>
+                                    <h2 class="text-2xl font-bold text-gray-800">📁 Bulk College Scraper (CSV & Batch)</h2>
+                                    <p class="text-sm text-gray-500 mt-1">
+                                        Queue 10, 100, or 1,000+ colleges into the Redis distributed task queue from <code>input.csv</code> or custom file uploads.
+                                    </p>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <button @click="loadServerInputCsv(false)" class="px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-300 font-bold rounded-xl hover:bg-emerald-100 transition text-xs shadow-sm flex items-center gap-2">
+                                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                        <span>Reload input.csv</span>
+                                    </button>
+                                </div>
                             </div>
 
                             <!-- Live Redis Batch Progress Card -->
@@ -770,20 +778,114 @@
                                 </div>
                             </div>
 
+                            <!-- Server input.csv Auto-Detector Card -->
+                            <div class="bg-gradient-to-r from-emerald-900 to-teal-950 text-white rounded-2xl p-6 shadow-lg border border-emerald-700 space-y-4">
+                                <div class="flex flex-wrap items-center justify-between gap-4">
+                                    <div class="flex items-center gap-3.5">
+                                        <div class="w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-300 text-2xl">
+                                            📄
+                                        </div>
+                                        <div>
+                                            <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                                                <span>Server <code>input.csv</code> Detected</span>
+                                                <span v-if="serverInputCsvInfo.exists" class="text-xs bg-emerald-500/30 text-emerald-200 border border-emerald-400/40 px-2 py-0.5 rounded-full font-bold">
+                                                    [[ serverInputCsvInfo.collegesCount ]] Colleges • [[ serverInputCsvInfo.totalRows ]] URLs
+                                                </span>
+                                            </h3>
+                                            <p class="text-xs text-emerald-200/80 mt-0.5">
+                                                Directly read and execute scraping jobs from the workspace's master <code>input.csv</code> file.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div class="flex flex-wrap items-center gap-2.5">
+                                        <button @click="loadServerInputCsv(false)" class="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white font-bold text-xs rounded-xl border border-white/20 transition flex items-center gap-1.5 shadow-sm">
+                                            <span>📥 Load to Table</span>
+                                        </button>
+                                        <button @click="loadServerInputCsv(true)" class="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs rounded-xl shadow-lg transition flex items-center gap-2">
+                                            <span>⚡ 1-Click Run input.csv</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Global Bulk Settings: Mode & Media Downloads -->
+                            <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-200 space-y-5">
+                                <div class="flex items-center justify-between border-b pb-3">
+                                    <div>
+                                        <h3 class="font-bold text-gray-800 text-sm">⚙️ Bulk Scraping Configuration</h3>
+                                        <p class="text-xs text-gray-500 mt-0.5">These settings apply to all colleges when running bulk jobs.</p>
+                                    </div>
+                                    <button @click="applyBulkSettings" class="text-xs text-blue-600 hover:text-blue-800 font-bold hover:underline">
+                                        Apply to All Items
+                                    </button>
+                                </div>
+
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <!-- Setting 1: Bulk Crawl Mode -->
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Crawl Mode</label>
+                                        <div class="grid grid-cols-2 gap-2">
+                                            <label class="cursor-pointer border-2 rounded-xl p-3 flex flex-col justify-between transition-all select-none text-left"
+                                                   :class="bulkSettings.crawlMode === 'specific' ? 'border-purple-600 bg-purple-50/60 shadow-xs' : 'border-gray-200 bg-gray-50 hover:border-gray-300'"
+                                                   @click="bulkSettings.crawlMode = 'specific'; applyBulkSettings()">
+                                                <div class="flex items-center justify-between">
+                                                    <span class="font-bold text-xs text-purple-900">🎯 Specific Links</span>
+                                                    <input type="radio" value="specific" v-model="bulkSettings.crawlMode" class="text-purple-600 focus:ring-0">
+                                                </div>
+                                                <p class="text-[11px] text-gray-500 mt-1">Scrapes ONLY exact URLs listed (Targeted)</p>
+                                            </label>
+                                            <label class="cursor-pointer border-2 rounded-xl p-3 flex flex-col justify-between transition-all select-none text-left"
+                                                   :class="bulkSettings.crawlMode === 'deep' ? 'border-blue-600 bg-blue-50/60 shadow-xs' : 'border-gray-200 bg-gray-50 hover:border-gray-300'"
+                                                   @click="bulkSettings.crawlMode = 'deep'; applyBulkSettings()">
+                                                <div class="flex items-center justify-between">
+                                                    <span class="font-bold text-xs text-blue-900">🌐 Deep Crawl</span>
+                                                    <input type="radio" value="deep" v-model="bulkSettings.crawlMode" class="text-blue-600 focus:ring-0">
+                                                </div>
+                                                <p class="text-[11px] text-gray-500 mt-1">Crawls seed & follows all internal links</p>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <!-- Setting 2: Bulk Media Download Toggle (Avoid PDFs/Images) -->
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Media & Document Downloads</label>
+                                        <div class="grid grid-cols-2 gap-2">
+                                            <label class="cursor-pointer border-2 rounded-xl p-3 flex flex-col justify-between transition-all select-none text-left"
+                                                   :class="bulkSettings.downloadMedia === false ? 'border-amber-500 bg-amber-50/60 shadow-xs' : 'border-gray-200 bg-gray-50 hover:border-gray-300'"
+                                                   @click="bulkSettings.downloadMedia = false; applyBulkSettings()">
+                                                <div class="flex items-center justify-between">
+                                                    <span class="font-bold text-xs text-amber-900">🚫 Skip PDFs & Images</span>
+                                                    <input type="radio" :value="false" v-model="bulkSettings.downloadMedia" class="text-amber-600 focus:ring-0">
+                                                </div>
+                                                <p class="text-[11px] text-gray-500 mt-1">Fast text-only mode (avoid file downloads)</p>
+                                            </label>
+                                            <label class="cursor-pointer border-2 rounded-xl p-3 flex flex-col justify-between transition-all select-none text-left"
+                                                   :class="bulkSettings.downloadMedia === true ? 'border-emerald-500 bg-emerald-50/60 shadow-xs' : 'border-gray-200 bg-gray-50 hover:border-gray-300'"
+                                                   @click="bulkSettings.downloadMedia = true; applyBulkSettings()">
+                                                <div class="flex items-center justify-between">
+                                                    <span class="font-bold text-xs text-emerald-900">📥 Download Files</span>
+                                                    <input type="radio" :value="true" v-model="bulkSettings.downloadMedia" class="text-emerald-600 focus:ring-0">
+                                                </div>
+                                                <p class="text-[11px] text-gray-500 mt-1">Download linked PDFs & images to disk</p>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                             <!-- Upload Dropzone Card -->
-                            <div class="border-2 border-dashed border-emerald-300 hover:border-emerald-500 bg-white rounded-2xl p-8 text-center transition-all shadow-sm">
+                            <div class="border-2 border-dashed border-gray-300 hover:border-emerald-500 bg-white rounded-2xl p-6 text-center transition-all shadow-xs">
                                 <input type="file" id="bulkCsvInputDedicated" accept=".csv" @change="handleCsvUpload" class="hidden">
-                                <label for="bulkCsvInputDedicated" class="cursor-pointer flex flex-col items-center justify-center gap-3">
-                                    <div class="w-16 h-16 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600 shadow-inner">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <label for="bulkCsvInputDedicated" class="cursor-pointer flex flex-col items-center justify-center gap-2">
+                                    <div class="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                                         </svg>
                                     </div>
                                     <div>
-                                        <span class="text-base font-bold text-emerald-700 hover:underline">Click here to select your CSV file</span>
-                                        <span class="text-gray-500 text-sm"> (e.g. <code>input.csv</code>)</span>
+                                        <span class="text-sm font-bold text-emerald-700 hover:underline">Click here to upload another custom CSV file</span>
                                     </div>
-                                    <p class="text-xs text-gray-400">CSV format: First column is College Name, second column is Seed URL</p>
+                                    <p class="text-[11px] text-gray-400">CSV format: <code>CollegeName,SeedURL</code></p>
                                 </label>
                             </div>
 
@@ -793,10 +895,10 @@
                                     <div class="flex items-center gap-2">
                                         <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
                                         <span class="font-bold text-gray-800 text-sm">
-                                            Found [[ scraperForm.jobs.length ]] Colleges in CSV
+                                            [[ scraperForm.jobs.length ]] Colleges Ready for Bulk Queue
                                         </span>
                                     </div>
-                                    <button @click="scraperForm.jobs = [{ collegeName: '', seedUrls: '' }]" class="text-xs text-red-600 hover:underline font-medium">
+                                    <button @click="scraperForm.jobs = [{ collegeName: '', seedUrls: '', crawlMode: bulkSettings.crawlMode, downloadMedia: bulkSettings.downloadMedia }]" class="text-xs text-red-600 hover:underline font-medium">
                                         Clear List
                                     </button>
                                 </div>
@@ -806,9 +908,9 @@
                                             <tr>
                                                 <th class="p-3">#</th>
                                                 <th class="p-3">College Name</th>
-                                                <th class="p-3">Seed URLs</th>
+                                                <th class="p-3">Seed / Target URLs</th>
                                                 <th class="p-3">Mode</th>
-                                                <th class="p-3">Media (PDF/Images)</th>
+                                                <th class="p-3">Media (PDFs)</th>
                                                 <th class="p-3">Status</th>
                                             </tr>
                                         </thead>
@@ -821,14 +923,15 @@
                                                     <span v-if="job.seedUrls.split('\n').length > 1" class="text-[11px] text-emerald-600 font-sans font-medium ml-1">(+[[ job.seedUrls.split('\n').length - 1 ]] more)</span>
                                                 </td>
                                                 <td class="p-3">
-                                                    <span class="px-2 py-0.5 rounded text-[10px] font-semibold" :class="job.crawlMode === 'specific' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'">
-                                                        [[ job.crawlMode === 'specific' ? '🎯 Specific' : '🌐 Deep' ]]
-                                                    </span>
+                                                    <select v-model="job.crawlMode" class="text-[11px] font-semibold rounded border border-gray-300 py-1 px-1.5 bg-white">
+                                                        <option value="specific">🎯 Specific</option>
+                                                        <option value="deep">🌐 Deep</option>
+                                                    </select>
                                                 </td>
                                                 <td class="p-3">
                                                     <label class="cursor-pointer inline-flex items-center gap-1.5 select-none">
                                                         <input type="checkbox" v-model="job.downloadMedia" class="rounded text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5">
-                                                        <span class="text-[11px] font-semibold" :class="job.downloadMedia !== false ? 'text-emerald-700' : 'text-gray-400'">
+                                                        <span class="text-[11px] font-semibold" :class="job.downloadMedia !== false ? 'text-emerald-700' : 'text-amber-700'">
                                                             [[ job.downloadMedia !== false ? '📥 Enabled' : '🚫 Skip' ]]
                                                         </span>
                                                     </label>
@@ -951,8 +1054,16 @@
                     globalScraperStatus: {},
                     queueStatus: null,
                     
-                    expandedGroups: {},
-                    selectedPages: {},
+                    bulkSettings: {
+                        crawlMode: 'specific', // 'specific' (targeted links only) or 'deep'
+                        downloadMedia: false   // false: avoid/skip PDFs & images for fast bulk scrape!
+                    },
+                    serverInputCsvInfo: {
+                        exists: false,
+                        totalRows: 0,
+                        collegesCount: 0,
+                        loading: false
+                    },
                     
                     statusPollInterval: null,
                     toasts: [],
@@ -1027,6 +1138,7 @@
             mounted() {
                 this.pollAllScraperStatuses();
                 this.fetchStorageInfo();
+                this.checkServerInputCsv();
                 this.globalPollInterval = setInterval(this.pollAllScraperStatuses, 6000);
             },
             beforeUnmount() {
@@ -1244,6 +1356,10 @@
                     this.activeTab = 'bulk';
                     this.scraperStatus = null;
                     if (this.statusPollInterval) clearInterval(this.statusPollInterval);
+                    this.checkServerInputCsv();
+                    if (!this.scraperForm.jobs || this.scraperForm.jobs.length === 0 || !this.scraperForm.jobs[0].collegeName) {
+                        this.loadServerInputCsv(false);
+                    }
                 },
                 startLongPress(collegeName) {
                     this.longPressTriggered = false;
@@ -1502,6 +1618,54 @@
                         event.target.value = "";
                     };
                     reader.readAsText(file);
+                },
+                async checkServerInputCsv() {
+                    try {
+                        const res = await fetch('/api/input-csv');
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.serverInputCsvInfo = data;
+                        }
+                    } catch(e) {}
+                },
+                async loadServerInputCsv(autoLaunch = false) {
+                    this.serverInputCsvInfo.loading = true;
+                    try {
+                        const res = await fetch('/api/input-csv');
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (data.exists && data.jobs && data.jobs.length > 0) {
+                                this.serverInputCsvInfo = data;
+                                this.scraperForm.jobs = data.jobs.map(j => ({
+                                    collegeName: j.collegeName,
+                                    seedUrls: j.seedUrls,
+                                    crawlMode: this.bulkSettings.crawlMode,
+                                    downloadMedia: this.bulkSettings.downloadMedia
+                                }));
+                                this.showToast(`Loaded ${data.jobs.length} colleges (${data.totalRows} URLs) from input.csv!`, 'success');
+                                if (autoLaunch) {
+                                    await this.startScrape();
+                                }
+                            } else {
+                                this.showToast('No valid colleges found in input.csv', 'warning');
+                            }
+                        }
+                    } catch(e) {
+                        this.showToast('Failed to load server input.csv: ' + e, 'error');
+                    } finally {
+                        this.serverInputCsvInfo.loading = false;
+                    }
+                },
+                applyBulkSettings() {
+                    if (this.scraperForm.jobs && this.scraperForm.jobs.length > 0) {
+                        this.scraperForm.jobs.forEach(j => {
+                            j.crawlMode = this.bulkSettings.crawlMode;
+                            j.downloadMedia = this.bulkSettings.downloadMedia;
+                        });
+                        const modeLabel = this.bulkSettings.crawlMode === 'specific' ? '🎯 Specific Links (Targeted)' : '🌐 Normal Deep Crawl';
+                        const mediaLabel = this.bulkSettings.downloadMedia ? '📥 Download Files' : '🚫 Skip PDFs/Images';
+                        this.showToast(`Applied ${modeLabel} & ${mediaLabel} to all bulk colleges!`, 'info');
+                    }
                 },
                 startPollingStatus(collegeName) {
                     if (this.statusPollInterval) clearInterval(this.statusPollInterval);

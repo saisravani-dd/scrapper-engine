@@ -546,6 +546,64 @@ async def start_bulk_scrape(req: BulkScrapeRequest):
     return {"status": "started", "message": f"Bulk scraper launched locally for {jobs_to_run} colleges."}
 
 
+@app.get("/api/input-csv")
+async def get_input_csv():
+    """Read server-side input.csv file and parse into structured college jobs."""
+    csv_file = "input.csv"
+    if not os.path.exists(csv_file):
+        return {"exists": False, "jobs": [], "totalRows": 0, "collegesCount": 0}
+
+    colleges_map: Dict[str, Dict[str, Any]] = {}
+    try:
+        with open(csv_file, "r", encoding="utf-8", errors="ignore") as f:
+            lines = [line.strip() for line in f if line.strip()]
+
+        start_idx = 0
+        if lines:
+            first_line = lines[0].lower()
+            if "college" in first_line or "url" in first_line or "name" in first_line:
+                start_idx = 1
+
+        for line in lines[start_idx:]:
+            # Tokenize CSV line (handling basic commas)
+            parts = [p.strip() for p in line.split(",") if p.strip()]
+            if len(parts) >= 2:
+                c_name = sanitize_college_name(parts[0])
+                c_url = parts[1]
+                c_mode = parts[2].lower() if len(parts) > 2 and parts[2].lower() in ("deep", "specific") else "deep"
+                c_media = False if len(parts) > 3 and parts[3].lower() in ("false", "0", "no") else True
+
+                if c_name and c_url:
+                    if c_name not in colleges_map:
+                        colleges_map[c_name] = {
+                            "collegeName": c_name,
+                            "seedUrls": [c_url],
+                            "crawlMode": c_mode,
+                            "downloadMedia": c_media,
+                        }
+                    else:
+                        if c_url not in colleges_map[c_name]["seedUrls"]:
+                            colleges_map[c_name]["seedUrls"].append(c_url)
+
+        jobs = []
+        for c_name, data in colleges_map.items():
+            jobs.append({
+                "collegeName": data["collegeName"],
+                "seedUrls": "\n".join(data["seedUrls"]),
+                "crawlMode": data["crawlMode"],
+                "downloadMedia": data["downloadMedia"],
+            })
+
+        return {
+            "exists": True,
+            "jobs": jobs,
+            "totalRows": len(lines) - start_idx,
+            "collegesCount": len(jobs),
+        }
+    except Exception as e:
+        return {"exists": False, "error": str(e), "jobs": [], "totalRows": 0, "collegesCount": 0}
+
+
 @app.post("/api/scrape/stop/{college_name}")
 async def stop_scrape(college_name: str):
     """Stop a running or queued scraper for a specific college."""
