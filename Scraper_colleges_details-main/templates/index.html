@@ -778,35 +778,6 @@
                                 </div>
                             </div>
 
-                            <!-- Server input.csv Auto-Detector Card -->
-                            <div class="bg-gradient-to-r from-emerald-900 to-teal-950 text-white rounded-2xl p-6 shadow-lg border border-emerald-700 space-y-4">
-                                <div class="flex flex-wrap items-center justify-between gap-4">
-                                    <div class="flex items-center gap-3.5">
-                                        <div class="w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-300 text-2xl">
-                                            📄
-                                        </div>
-                                        <div>
-                                            <h3 class="text-lg font-bold text-white flex items-center gap-2">
-                                                <span>Server <code>input.csv</code> Detected</span>
-                                                <span v-if="serverInputCsvInfo.exists" class="text-xs bg-emerald-500/30 text-emerald-200 border border-emerald-400/40 px-2 py-0.5 rounded-full font-bold">
-                                                    [[ serverInputCsvInfo.collegesCount ]] Colleges • [[ serverInputCsvInfo.totalRows ]] URLs
-                                                </span>
-                                            </h3>
-                                            <p class="text-xs text-emerald-200/80 mt-0.5">
-                                                Directly read and execute scraping jobs from the workspace's master <code>input.csv</code> file.
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <div class="flex flex-wrap items-center gap-2.5">
-                                        <button @click="loadServerInputCsv(false)" class="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white font-bold text-xs rounded-xl border border-white/20 transition flex items-center gap-1.5 shadow-sm">
-                                            <span>📥 Load to Table</span>
-                                        </button>
-                                        <button @click="loadServerInputCsv(true)" class="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs rounded-xl shadow-lg transition flex items-center gap-2">
-                                            <span>⚡ 1-Click Run input.csv</span>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
 
                             <!-- Global Bulk Settings: Mode & Media Downloads -->
                             <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-200 space-y-5">
@@ -1012,6 +983,7 @@
             </transition-group>
         </div>
     </div>
+    </div>
 
     <script>
         const { createApp } = Vue
@@ -1026,6 +998,8 @@
                     pages: [],
                     trash: [],
                     selectedPage: null,
+                    selectedPages: {},
+                    expandedGroups: {},
                     loading: false,
                     saving: false,
                     hasUnsavedChanges: false,
@@ -1356,10 +1330,6 @@
                     this.activeTab = 'bulk';
                     this.scraperStatus = null;
                     if (this.statusPollInterval) clearInterval(this.statusPollInterval);
-                    this.checkServerInputCsv();
-                    if (!this.scraperForm.jobs || this.scraperForm.jobs.length === 0 || !this.scraperForm.jobs[0].collegeName) {
-                        this.loadServerInputCsv(false);
-                    }
                 },
                 startLongPress(collegeName) {
                     this.longPressTriggered = false;
@@ -1587,10 +1557,10 @@
                             if (parts.length >= 2) {
                                 let rawName = parts[0].replace(/^["']|["']$/g, '').trim();
                                 let rawUrl = parts[1].replace(/^["']|["']$/g, '').trim();
-                                let rawMode = parts[2] ? parts[2].replace(/^["']|["']$/g, '').trim().toLowerCase() : 'deep';
-                                if (rawMode !== 'specific' && rawMode !== 'deep') rawMode = 'deep';
+                                let rawMode = parts[2] ? parts[2].replace(/^["']|["']$/g, '').trim().toLowerCase() : this.bulkSettings.crawlMode;
+                                if (rawMode !== 'specific' && rawMode !== 'deep') rawMode = this.bulkSettings.crawlMode;
                                 
-                                let rawMedia = parts[3] ? parts[3].replace(/^["']|["']$/g, '').trim().toLowerCase() : 'true';
+                                let rawMedia = parts[3] ? parts[3].replace(/^["']|["']$/g, '').trim().toLowerCase() : (this.bulkSettings.downloadMedia ? 'true' : 'false');
                                 let downloadMedia = !['false', 'no', '0', 'off'].includes(rawMedia);
 
                                 const cName = rawName.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "");

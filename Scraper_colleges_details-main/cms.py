@@ -504,7 +504,7 @@ async def start_bulk_scrape(req: BulkScrapeRequest):
     jobs_to_run = 0
 
     with open(csv_path, "w", encoding="utf-8") as f:
-        f.write("CollegeName,SeedURL\n")
+        f.write("CollegeName,SeedURL,Mode,DownloadMedia\n")
         for job in req.jobs:
             c_name = sanitize_college_name(job.collegeName)
             if not c_name:
@@ -514,6 +514,9 @@ async def start_bulk_scrape(req: BulkScrapeRequest):
                 continue
             jobs_to_run += 1
 
+            c_mode = getattr(job, "crawlMode", "deep") or "deep"
+            c_media = getattr(job, "downloadMedia", True)
+
             status_file = os.path.join(DATA_DIR, f"{c_name}_status.json")
             with open(status_file, "w", encoding="utf-8") as sf:
                 json.dump(
@@ -521,7 +524,7 @@ async def start_bulk_scrape(req: BulkScrapeRequest):
                     sf,
                 )
             for url in clean_urls:
-                f.write(f"{c_name},{url}\n")
+                f.write(f"{c_name},{url},{c_mode},{c_media}\n")
 
     if jobs_to_run == 0:
         return {"status": "skipped", "message": "No valid colleges to scrape."}
@@ -538,7 +541,7 @@ async def start_bulk_scrape(req: BulkScrapeRequest):
             cwd=project_dir,
             env=env,
         )
-        for job in req.jobs:
+        for job in payload.jobs:
             c_name = sanitize_college_name(job.collegeName)
             if c_name:
                 _running_pids[c_name] = proc.pid
