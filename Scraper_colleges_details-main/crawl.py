@@ -45,10 +45,13 @@ DOCUMENT_EXTENSIONS = {
     ".ppt", ".pptx", ".csv", ".rtf", ".odt", ".ods", ".odp", ".txt",
 }
 
-# File extensions to skip entirely (images, media, web assets, etc.)
-SKIP_EXTENSIONS = {
-    # Images
+# Image extensions (downloadable when download_media is enabled)
+IMAGE_EXTENSIONS = {
     ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".ico", ".bmp", ".tiff",
+}
+
+# File extensions to skip entirely (media, web assets, etc.)
+SKIP_EXTENSIONS = {
     # Video / Audio
     ".mp4", ".mp3", ".avi", ".mov", ".wmv", ".flv", ".ogg", ".wav", ".webm",
     # Fonts
@@ -178,8 +181,9 @@ async def scrape_page(
     http_session: aiohttp.ClientSession,
     downloads_dir: str,
     log_fn=None,
+    download_media: bool = True,
 ) -> tuple[dict | None, list]:
-    """Visit a single page, extract content and links with retry on context destruction."""
+    """Visit a single page, extract content, images, and links with retry on context destruction."""
     if log_fn is None:
         log_fn = print
 
@@ -237,7 +241,7 @@ async def scrape_page(
                 continue
 
             ext = get_extension(full_url)
-            if ext in SKIP_EXTENSIONS or ext in DOCUMENT_EXTENSIONS:
+            if ext in SKIP_EXTENSIONS or ext in DOCUMENT_EXTENSIONS or ext in IMAGE_EXTENSIONS:
                 continue
 
             if is_allowed_domain(full_url, allowed_domains):
@@ -297,7 +301,33 @@ async def scrape_page(
         body_text = clean_soup.get_text(separator="\n", strip=True)
         body_text = re.sub(r'\n{3,}', '\n\n', body_text).strip()
 
-        # Extract document links from the CLEANED body
+        # Extract embedded images
+        images = []
+        for img_tag in clean_soup.find_all("img", src=True):
+            src = img_tag["src"].strip()
+            if not src or src.startswith("data:"):
+                continue
+            full_img_url = urljoin(url, src)
+            if not is_valid_http_url(full_img_url):
+                continue
+            img_alt = img_tag.get("alt", "").strip()
+            img_entry = {
+                "src": full_img_url,
+                "alt": img_alt,
+            }
+            if download_media:
+                normalized_img = normalize_url(full_img_url)
+                if normalized_img not in visited:
+                    visited.add(normalized_img)
+                    dl_result = await download_file(
+                        http_session, full_img_url, img_alt or "image", url, downloads_dir, log_fn
+                    )
+                    if dl_result:
+                        downloads_list.append(dl_result)
+                        img_entry["localPath"] = dl_result["localPath"]
+            images.append(img_entry)
+
+        # Extract links from the CLEANED body
         links = []
         for anchor in clean_soup.find_all("a", href=True):
             href = anchor["href"].strip()
@@ -332,16 +362,36 @@ async def scrape_page(
                     "sectionHeading": section_heading,
                 }
 
-                normalized = normalize_url(full_url)
-                if normalized not in visited:
-                    visited.add(normalized)
-                    dl_result = await download_file(
-                        http_session, full_url, link_text, url, downloads_dir, log_fn
-                    )
-                    if dl_result:
-                        downloads_list.append(dl_result)
-                        link_entry["localPath"] = dl_result["localPath"]
+                if download_media:
+                    normalized = normalize_url(full_url)
+                    if normalized not in visited:
+                        visited.add(normalized)
+                        dl_result = await download_file(
+                            http_session, full_url, link_text, url, downloads_dir, log_fn
+                        )
+                        if dl_result:
+                            downloads_list.append(dl_result)
+                            link_entry["localPath"] = dl_result["localPath"]
                 links.append(link_entry)
+
+            elif ext in IMAGE_EXTENSIONS:
+                link_entry = {
+                    "text": link_text,
+                    "href": full_url,
+                    "type": "image",
+                }
+                if download_media:
+                    normalized = normalize_url(full_url)
+                    if normalized not in visited:
+                        visited.add(normalized)
+                        dl_result = await download_file(
+                            http_session, full_url, link_text, url, downloads_dir, log_fn
+                        )
+                        if dl_result:
+                            downloads_list.append(dl_result)
+                            link_entry["localPath"] = dl_result["localPath"]
+                links.append(link_entry)
+
             elif ext not in SKIP_EXTENSIONS:
                 links.append({
                     "text": link_text,
@@ -354,6 +404,7 @@ async def scrape_page(
             "title": title,
             "bodyText": body_text,
             "links": links,
+            "images": images,
             "depth": depth,
         }, new_urls_to_visit
 
@@ -365,8 +416,15 @@ async def scrape_page(
 # ---------------------------------------------------------------------------
 # Main BFS Crawler
 # ---------------------------------------------------------------------------
-async def crawl(college_name: str, start_urls: list[str]):
-    """Main BFS crawler. Visits all internal pages across provided URLs."""
+async def crawl(college_name: str, start_urls: list[str], crawl_mode: str = "deep", download_media: bool = True):
+    """
+    Main Crawler.
+    - crawl_mode="deep": (Default) Recursively visits all internal pages up to MAX_DEPTH.
+    - crawl_mode="specific": Scrapes ONLY the exact provided start_urls (no recursive link following).
+    - download_media=True: Downloads linked PDFs/docs & images locally to disk.
+    - download_media=False: Extracts all text & links without downloading media files to disk.
+    """
+    is_specific_mode = (crawl_mode == "specific")
     allowed_domains = {urlparse(u).hostname for u in start_urls if urlparse(u).hostname}
 
     downloads_dir = os.path.join(BASE_DOWNLOADS_DIR, college_name)
@@ -380,7 +438,8 @@ async def crawl(college_name: str, start_urls: list[str]):
     # Initialize log file
     try:
         with open(college_log_file, "w", encoding="utf-8") as clf:
-            clf.write(f"🌐 Starting scrape for {college_name}...\n")
+            mode_label = "Specific Links" if is_specific_mode else "Normal Deep Crawl"
+            clf.write(f"🌐 Starting {mode_label} for {college_name}...\n")
     except Exception:
         pass
 
@@ -395,7 +454,13 @@ async def crawl(college_name: str, start_urls: list[str]):
     def update_status(status_msg, state="running"):
         try:
             with open(status_file, "w") as sf:
-                json.dump({"status": state, "message": status_msg, "updatedAt": time.time()}, sf)
+                json.dump({
+                    "status": state,
+                    "message": status_msg,
+                    "crawlMode": crawl_mode,
+                    "downloadMedia": download_media,
+                    "updatedAt": time.time()
+                }, sf)
         except Exception:
             pass
 
@@ -429,31 +494,39 @@ async def crawl(college_name: str, start_urls: list[str]):
                 visited.add(norm)
                 await queue.put((url, 0))
 
-        # Queue all pending unvisited links discovered in previous runs to resume
+        # Queue all pending unvisited links discovered in previous runs to resume (only in deep mode)
         resumed_links = 0
-        for p in all_pages:
-            p_depth = p.get("depth", 0)
-            for link in p.get("links", []):
-                if link.get("type") == "internal":
-                    href = link.get("href")
-                    if href and is_allowed_domain(href, allowed_domains):
-                        norm_href = normalize_url(href)
-                        if norm_href not in visited:
-                            link_depth = p_depth + 1
-                            if link_depth <= MAX_DEPTH:
-                                visited.add(norm_href)
-                                await queue.put((href, link_depth))
-                                resumed_links += 1
+        if not is_specific_mode:
+            for p in all_pages:
+                p_depth = p.get("depth", 0)
+                for link in p.get("links", []):
+                    if link.get("type") == "internal":
+                        href = link.get("href")
+                        if href and is_allowed_domain(href, allowed_domains):
+                            norm_href = normalize_url(href)
+                            if norm_href not in visited:
+                                link_depth = p_depth + 1
+                                if link_depth <= MAX_DEPTH:
+                                    visited.add(norm_href)
+                                    await queue.put((href, link_depth))
+                                    resumed_links += 1
 
-        if len(all_pages) > 0:
+        if len(all_pages) > 0 and not is_specific_mode:
             log_msg(
                 f"🔄 Resuming scrape: {len(all_pages)} pages done. "
                 f"Queued {resumed_links} pending links."
             )
 
-        log_msg(f"🌐 Starting deep crawl for: {college_name} (⚡ {MAX_CONCURRENT_TABS} tabs, depth {MAX_DEPTH}, max {MAX_PAGES} pages)")
+        if is_specific_mode:
+            log_msg(f"🎯 Starting Specific Links Scrape for: {college_name} ({len(start_urls)} exact target URLs, no recursive crawling)")
+        else:
+            log_msg(f"🌐 Starting deep crawl for: {college_name} (⚡ {MAX_CONCURRENT_TABS} tabs, depth {MAX_DEPTH}, max {MAX_PAGES} pages)")
+
         log_msg(f"📌 Allowed Domains: {', '.join(allowed_domains)}")
-        log_msg(f"📂 Documents will be saved to: {downloads_dir}/")
+        if download_media:
+            log_msg(f"📥 Media Downloads: ENABLED (PDFs, Docs & Images will be downloaded to {downloads_dir}/)")
+        else:
+            log_msg(f"📥 Media Downloads: DISABLED (PDFs & Images will NOT be downloaded to disk)")
         log_msg(f"📄 Output will be saved to: {output_file}")
         log_msg("=" * 60)
 
@@ -495,6 +568,7 @@ async def crawl(college_name: str, start_urls: list[str]):
                             result, new_urls = await scrape_page(
                                 page, url, depth, allowed_domains, visited,
                                 all_downloads, http_session, downloads_dir, log_msg,
+                                download_media=download_media,
                             )
 
                             # If failed on the seed page (depth == 0), give it a second chance
@@ -504,6 +578,7 @@ async def crawl(college_name: str, start_urls: list[str]):
                                 result, new_urls = await scrape_page(
                                     page, url, depth, allowed_domains, visited,
                                     all_downloads, http_session, downloads_dir, log_msg,
+                                    download_media=download_media,
                                 )
 
                             if result:
@@ -532,6 +607,7 @@ async def crawl(college_name: str, start_urls: list[str]):
                                                 "crawlDurationSeconds": round(time.time() - start_time, 1),
                                                 "totalPages": len(all_pages),
                                                 "totalDownloads": len(all_downloads),
+                                                "downloadMedia": download_media,
                                                 "pages": all_pages,
                                                 "downloads": all_downloads,
                                             }
@@ -540,14 +616,15 @@ async def crawl(college_name: str, start_urls: list[str]):
                                         except Exception:
                                             pass
 
-                            # Add newly discovered URLs to the queue
-                            for new_url, new_depth in (new_urls or []):
-                                if new_depth > MAX_DEPTH:
-                                    continue
-                                norm = normalize_url(new_url)
-                                if norm not in visited:
-                                    visited.add(norm)
-                                    await queue.put((new_url, new_depth))
+                            # Add newly discovered URLs to the queue (only in deep mode)
+                            if not is_specific_mode:
+                                for new_url, new_depth in (new_urls or []):
+                                    if new_depth > MAX_DEPTH:
+                                        continue
+                                    norm = normalize_url(new_url)
+                                    if norm not in visited:
+                                        visited.add(norm)
+                                        await queue.put((new_url, new_depth))
 
                         except Exception as e:
                             log_msg(f"    ❌ Unhandled error on {url}: {e}")
@@ -595,6 +672,7 @@ async def crawl(college_name: str, start_urls: list[str]):
             "crawlDurationSeconds": round(elapsed, 1),
             "totalPages": len(all_pages),
             "totalDownloads": len(all_downloads),
+            "downloadMedia": download_media,
             "pages": all_pages,
             "downloads": all_downloads,
         }
@@ -625,14 +703,22 @@ async def crawl(college_name: str, start_urls: list[str]):
 # ---------------------------------------------------------------------------
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python crawl.py <input.csv>")
-        print("Example: python crawl.py input.csv")
+        print("Usage: python crawl.py <input.csv> [--mode deep|specific] [--no-media]")
+        print("Example: python crawl.py input.csv --mode specific --no-media")
         sys.exit(1)
 
     csv_path = sys.argv[1]
     if not os.path.exists(csv_path):
         print(f"Error: Could not find '{csv_path}'")
         sys.exit(1)
+
+    cli_mode = "deep"
+    if "--mode" in sys.argv:
+        m_idx = sys.argv.index("--mode")
+        if m_idx + 1 < len(sys.argv):
+            cli_mode = sys.argv[m_idx + 1].strip().lower()
+
+    cli_media = not ("--no-media" in sys.argv or "--no-downloads" in sys.argv)
 
     # Parse CSV: Group by CollegeName
     colleges = {}
@@ -641,18 +727,28 @@ def main():
         for row in reader:
             college = row.get("CollegeName", "").strip()
             url = row.get("SeedURL", "").strip()
+            mode = row.get("Mode", cli_mode).strip().lower() or cli_mode
+            raw_media = row.get("DownloadMedia", "").strip().lower()
+            if raw_media in ("false", "no", "0", "off"):
+                media_opt = False
+            elif raw_media in ("true", "yes", "1", "on"):
+                media_opt = True
+            else:
+                media_opt = cli_media
 
             if not college or not url:
                 continue
 
             if college not in colleges:
-                colleges[college] = {"urls": []}
+                colleges[college] = {"urls": [], "mode": mode, "download_media": media_opt}
 
             colleges[college]["urls"].append(url)
 
     for college_name, data in colleges.items():
-        start_urls = list(set(data["urls"]))
-        asyncio.run(crawl(college_name, start_urls))
+        start_urls = list(dict.fromkeys(data["urls"]))
+        c_mode = data.get("mode", cli_mode)
+        c_media = data.get("download_media", cli_media)
+        asyncio.run(crawl(college_name, start_urls, crawl_mode=c_mode, download_media=c_media))
 
 
 if __name__ == "__main__":

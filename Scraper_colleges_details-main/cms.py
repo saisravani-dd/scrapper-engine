@@ -59,20 +59,26 @@ except Exception as e:
     print(f"⚠️ Redis/RQ initialization notice: {e}")
 
 
-# ---------------------------------------------------------------------------
-# Input Validation
-# ---------------------------------------------------------------------------
+def sanitize_college_name(name: str) -> str:
+    """Sanitize college name by replacing spaces and non-alphanumeric chars with underscores."""
+    if not name or not isinstance(name, str):
+        return ""
+    sanitized = re.sub(r"[^a-zA-Z0-9_-]+", "_", name.strip())
+    sanitized = re.sub(r"^[_.-]+|[_.-]+$", "", sanitized)
+    return sanitized
+
+
 def validate_college_name(name: str) -> str:
     """Sanitize and validate college name to prevent path traversal."""
-    name = name.strip()
-    if not name:
+    if not name or not isinstance(name, str):
         raise HTTPException(status_code=400, detail="College name is required")
-    if not SAFE_NAME_RE.match(name):
+    sanitized = sanitize_college_name(name)
+    if not sanitized:
         raise HTTPException(
             status_code=400,
-            detail="College name must only contain letters, numbers, underscores, and hyphens",
+            detail="College name must contain at least one valid alphanumeric character",
         )
-    return name
+    return sanitized
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +96,8 @@ class JsonUpdate(BaseModel):
 class BulkScrapeItem(BaseModel):
     collegeName: str
     seedUrls: List[str]
+    crawlMode: str = "deep"  # "deep" (normal recursive crawl) or "specific" (exact links only)
+    downloadMedia: bool = True  # True: download PDFs/images locally, False: skip downloads
 
 
 class BulkScrapeRequest(BaseModel):
@@ -99,6 +107,8 @@ class BulkScrapeRequest(BaseModel):
 class ScrapeRequest(BaseModel):
     collegeName: str
     seedUrls: List[str]
+    crawlMode: str = "deep"  # "deep" or "specific"
+    downloadMedia: bool = True  # True: download PDFs/images locally, False: skip downloads
 
 
 # ---------------------------------------------------------------------------
@@ -116,8 +126,16 @@ def safe_read_json(filepath: str, default=None):
         return default
 
 
-def get_dir_size(path="."):
-    """Recursively get the total size of a directory."""
+_dir_size_cache: Dict[str, tuple] = {}
+
+def get_dir_size(path=".", cache_ttl=30):
+    """Recursively get the total size of a directory with TTL cache."""
+    now = time.time()
+    if path in _dir_size_cache:
+        cached_time, cached_size = _dir_size_cache[path]
+        if now - cached_time < cache_ttl:
+            return cached_size
+
     total = 0
     try:
         with os.scandir(path) as it:
@@ -125,9 +143,11 @@ def get_dir_size(path="."):
                 if entry.is_file():
                     total += entry.stat().st_size
                 elif entry.is_dir():
-                    total += get_dir_size(entry.path)
+                    total += get_dir_size(entry.path, cache_ttl=0)
     except OSError:
         pass
+
+    _dir_size_cache[path] = (now, total)
     return total
 
 
@@ -325,17 +345,27 @@ async def start_scrape(req: ScrapeRequest):
             # Write initial status file for immediate UI responsiveness
             status_file = os.path.join(DATA_DIR, f"{college_name}_status.json")
             with open(status_file, "w", encoding="utf-8") as f:
-                json.dump({"status": "queued", "startedAt": time.time(), "message": "Scraper queued in Redis..."}, f)
+                json.dump({
+                    "status": "queued",
+                    "startedAt": time.time(),
+                    "crawlMode": req.crawlMode,
+                    "downloadMedia": req.downloadMedia,
+                    "message": "Scraper queued in Redis..."
+                }, f)
 
             job = scrape_queue.enqueue(
                 tasks.run_crawl_job,
                 college_name,
                 seed_urls,
+                crawl_mode=req.crawlMode,
+                download_media=req.downloadMedia,
                 job_id=job_id,
                 job_timeout="24h",
                 result_ttl=86400,
             )
-            return {"status": "queued", "message": f"Scraper queued in Redis (Job ID: {job.id})."}
+            mode_text = "Specific Links Scrape" if req.crawlMode == "specific" else "Deep Scrape"
+            media_text = "with media downloads" if req.downloadMedia else "without media downloads"
+            return {"status": "queued", "message": f"{mode_text} ({media_text}) queued in Redis (Job ID: {job.id})."}
         except Exception as e:
             print(f"⚠️ Redis enqueue error, falling back to local process: {e}")
 
@@ -347,20 +377,30 @@ async def start_scrape(req: ScrapeRequest):
 
     csv_path = os.path.join(DATA_DIR, f"{college_name}_input.csv")
     with open(csv_path, "w", encoding="utf-8") as f:
-        f.write("CollegeName,SeedURL\n")
+        f.write("CollegeName,SeedURL,Mode,DownloadMedia\n")
         for url in seed_urls:
-            f.write(f"{college_name},{url}\n")
+            f.write(f"{college_name},{url},{req.crawlMode},{req.downloadMedia}\n")
 
     with open(status_file, "w", encoding="utf-8") as f:
-        json.dump({"status": "running", "startedAt": time.time(), "message": "Scraper starting..."}, f)
+        json.dump({
+            "status": "running",
+            "startedAt": time.time(),
+            "crawlMode": req.crawlMode,
+            "downloadMedia": req.downloadMedia,
+            "message": "Scraper starting..."
+        }, f)
 
     log_file = os.path.join(DATA_DIR, f"{college_name}_scrape.log")
     project_dir = get_project_dir()
     env = dict(os.environ, PYTHONUNBUFFERED="1")
 
+    cmd = [sys.executable, "-u", "crawl.py", csv_path, "--mode", req.crawlMode]
+    if not req.downloadMedia:
+        cmd.append("--no-media")
+
     with open(log_file, "w", encoding="utf-8") as lf:
         proc = subprocess.Popen(
-            [sys.executable, "-u", "crawl.py", csv_path],
+            cmd,
             stdout=lf,
             stderr=subprocess.STDOUT,
             cwd=project_dir,
@@ -368,7 +408,7 @@ async def start_scrape(req: ScrapeRequest):
         )
         _running_pids[college_name] = proc.pid
 
-    return {"status": "started", "message": "Scraper launched as local process."}
+    return {"status": "started", "message": f"Scraper launched as local process ({req.crawlMode} mode)."}
 
 
 @app.post("/api/scrape/bulk")
@@ -382,21 +422,23 @@ async def start_bulk_scrape(req: BulkScrapeRequest):
     file_exists = os.path.exists(master_input)
     with open(master_input, "a", encoding="utf-8") as mf:
         if not file_exists:
-            mf.write("CollegeName,SeedURL\n")
+            mf.write("CollegeName,SeedURL,Mode,DownloadMedia\n")
         for job in req.jobs:
-            c_name = job.collegeName.strip()
+            c_name = sanitize_college_name(job.collegeName)
             if not c_name:
                 continue
+            c_mode = getattr(job, "crawlMode", "deep") or "deep"
+            c_media = getattr(job, "downloadMedia", True)
             for url in job.seedUrls:
                 if url.strip():
-                    mf.write(f"{c_name},{url.strip()}\n")
+                    mf.write(f"{c_name},{url.strip()},{c_mode},{c_media}\n")
 
     # 1. Distributed Queue with Redis
     if redis_conn and scrape_queue:
         queued_count = 0
         for job_item in req.jobs:
-            c_name = job_item.collegeName.strip()
-            if not c_name or not SAFE_NAME_RE.match(c_name):
+            c_name = sanitize_college_name(job_item.collegeName)
+            if not c_name:
                 continue
             clean_urls = [u.strip() for u in job_item.seedUrls if u.strip()]
             if not clean_urls:
@@ -407,14 +449,23 @@ async def start_bulk_scrape(req: BulkScrapeRequest):
             try:
                 existing_job = Job.fetch(job_id, connection=redis_conn)
                 if existing_job.get_status() in ("queued", "started"):
+                    queued_count += 1
                     continue
             except Exception:
                 pass
 
+            c_mode = getattr(job_item, "crawlMode", "deep") or "deep"
+            c_media = getattr(job_item, "downloadMedia", True)
             status_file = os.path.join(DATA_DIR, f"{c_name}_status.json")
             with open(status_file, "w", encoding="utf-8") as sf:
                 json.dump(
-                    {"status": "queued", "startedAt": time.time(), "message": "Queued in Redis distributed queue..."},
+                    {
+                        "status": "queued",
+                        "startedAt": time.time(),
+                        "crawlMode": c_mode,
+                        "downloadMedia": c_media,
+                        "message": f"Queued in Redis queue ({c_mode} mode)..."
+                    },
                     sf,
                 )
 
@@ -422,11 +473,20 @@ async def start_bulk_scrape(req: BulkScrapeRequest):
                 tasks.run_crawl_job,
                 c_name,
                 clean_urls,
+                crawl_mode=c_mode,
+                download_media=c_media,
                 job_id=job_id,
                 job_timeout="24h",
                 result_ttl=86400,
             )
             queued_count += 1
+
+        if queued_count == 0:
+            return {
+                "status": "warning",
+                "message": "No valid college jobs to queue. Please check college names and URLs.",
+                "queuedJobs": 0,
+            }
 
         return {
             "status": "started",
@@ -442,8 +502,8 @@ async def start_bulk_scrape(req: BulkScrapeRequest):
     with open(csv_path, "w", encoding="utf-8") as f:
         f.write("CollegeName,SeedURL\n")
         for job in req.jobs:
-            c_name = job.collegeName.strip()
-            if not c_name or not SAFE_NAME_RE.match(c_name):
+            c_name = sanitize_college_name(job.collegeName)
+            if not c_name:
                 continue
             clean_urls = [u.strip() for u in job.seedUrls if u.strip()]
             if not clean_urls:
@@ -475,7 +535,9 @@ async def start_bulk_scrape(req: BulkScrapeRequest):
             env=env,
         )
         for job in req.jobs:
-            _running_pids[job.collegeName.strip()] = proc.pid
+            c_name = sanitize_college_name(job.collegeName)
+            if c_name:
+                _running_pids[c_name] = proc.pid
 
     return {"status": "started", "message": f"Bulk scraper launched locally for {jobs_to_run} colleges."}
 
@@ -581,6 +643,18 @@ async def get_scrape_status(college_name: str):
     status_data["logs"] = logs
     status_data["concurrency"] = 8
     return status_data
+
+
+@app.get("/api/all-statuses")
+async def get_all_statuses():
+    """Return all college statuses in a single fast JSON response."""
+    statuses = {}
+    for f in os.listdir(DATA_DIR):
+        if f.endswith("_status.json"):
+            c_name = f.replace("_status.json", "")
+            sdata = safe_read_json(os.path.join(DATA_DIR, f), {})
+            statuses[c_name] = sdata.get("status", "idle")
+    return {"statuses": statuses}
 
 
 @app.get("/api/queue-status")

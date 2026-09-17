@@ -602,37 +602,110 @@
                             </div>
                             
                             <!-- Form -->
-                            <div class="bg-gray-50 p-6 rounded shadow-sm border border-gray-200" :class="{'opacity-50 pointer-events-none': scraperStatus && scraperStatus.status === 'running'}">
-                                <div v-for="(job, index) in scraperForm.jobs" :key="index" class="p-4 bg-white border rounded mb-4 shadow-sm relative">
-                                    <button v-if="scraperForm.jobs.length > 1" @click="scraperForm.jobs.splice(index, 1)" class="absolute top-2 right-2 text-red-500 hover:text-red-700 p-1">
+                            <div class="bg-gray-50 p-6 rounded-2xl shadow-sm border border-gray-200" :class="{'opacity-50 pointer-events-none': scraperStatus && scraperStatus.status === 'running'}">
+                                <div v-for="(job, index) in scraperForm.jobs" :key="index" class="p-5 bg-white border border-gray-200 rounded-xl mb-5 shadow-sm relative">
+                                    <button v-if="scraperForm.jobs.length > 1" @click="scraperForm.jobs.splice(index, 1)" class="absolute top-3 right-3 text-red-400 hover:text-red-700 p-1.5 hover:bg-red-50 rounded-lg transition" title="Remove this job">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
                                     </button>
-                                    <h3 class="font-bold text-gray-700 mb-3 border-b pb-2">College Job [[ index + 1 ]]</h3>
+                                    <h3 class="font-bold text-gray-800 mb-4 border-b pb-2 flex items-center gap-2">
+                                        <span class="w-6 h-6 rounded-full bg-blue-100 text-blue-800 text-xs flex items-center justify-center font-bold">[[ index + 1 ]]</span>
+                                        <span>College Scrape Target</span>
+                                    </h3>
                                     
                                     <div class="mb-4">
-                                        <label class="block text-sm font-bold text-gray-700 mb-2">College ID / Name</label>
-                                        <input type="text" v-model="job.collegeName" placeholder="e.g. mycollege" class="w-full px-4 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                        <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">College ID / Name</label>
+                                        <input type="text" v-model="job.collegeName" placeholder="e.g. nit_warangal or iit_madras" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm font-medium">
+                                    </div>
+
+                                    <!-- Scraping Mode Selector -->
+                                    <div class="mb-4">
+                                        <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Scraping Mode</label>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <!-- Option 1: Normal Deep Crawl -->
+                                            <label class="cursor-pointer border-2 rounded-xl p-3 flex items-start gap-3 transition-all select-none"
+                                                   :class="(!job.crawlMode || job.crawlMode === 'deep') ? 'border-blue-600 bg-blue-50/50 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'">
+                                                <input type="radio" value="deep" v-model="job.crawlMode" class="mt-1 text-blue-600 focus:ring-blue-500">
+                                                <div>
+                                                    <span class="font-bold text-sm text-gray-800 flex items-center gap-1.5">
+                                                        <span>🌐 Normal Deep Scrape</span>
+                                                        <span class="text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-semibold">Recursive</span>
+                                                    </span>
+                                                    <p class="text-xs text-gray-500 mt-1">Crawls seed URL & follows all internal links recursively across departments, admissions, faculty, etc.</p>
+                                                </div>
+                                            </label>
+
+                                            <!-- Option 2: Specific Links Only -->
+                                            <label class="cursor-pointer border-2 rounded-xl p-3 flex items-start gap-3 transition-all select-none"
+                                                   :class="job.crawlMode === 'specific' ? 'border-purple-600 bg-purple-50/50 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'">
+                                                <input type="radio" value="specific" v-model="job.crawlMode" class="mt-1 text-purple-600 focus:ring-purple-500">
+                                                <div>
+                                                    <span class="font-bold text-sm text-gray-800 flex items-center gap-1.5">
+                                                        <span>🎯 Specific Links Only</span>
+                                                        <span class="text-[10px] bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded font-semibold">Targeted</span>
+                                                    </span>
+                                                    <p class="text-xs text-gray-500 mt-1">Scrapes ONLY the exact links you list below without crawling any other pages. Fast & focused.</p>
+                                                </div>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <!-- Media Download Checkbox Option -->
+                                    <div class="mb-5 p-4 rounded-xl border-2 transition-all select-none cursor-pointer"
+                                         :class="job.downloadMedia !== false ? 'border-emerald-500 bg-emerald-50/60 shadow-sm' : 'border-amber-400 bg-amber-50/60'"
+                                         @click="job.downloadMedia = (job.downloadMedia === false ? true : false)">
+                                        <div class="flex items-center justify-between gap-3">
+                                            <div class="flex items-start gap-3">
+                                                <input type="checkbox" :checked="job.downloadMedia !== false" @change="job.downloadMedia = $event.target.checked" @click.stop class="mt-1 h-5 w-5 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500 cursor-pointer">
+                                                <div>
+                                                    <div class="font-bold text-sm text-gray-900 flex items-center gap-2">
+                                                        <span>📥 Download PDFs, Documents & Images</span>
+                                                        <span v-if="job.downloadMedia !== false" class="text-xs bg-emerald-600 text-white px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1">
+                                                            ✓ Download Files: YES
+                                                        </span>
+                                                        <span v-else class="text-xs bg-amber-600 text-white px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1">
+                                                            ✕ Download Files: NO (Skip PDFs/Images)
+                                                        </span>
+                                                    </div>
+                                                    <p class="text-xs mt-1 leading-relaxed">
+                                                        <span v-if="job.downloadMedia !== false" class="text-emerald-800 font-medium">
+                                                            ✓ Checked: Will download all PDF brochures, documents, and images to local drive.
+                                                        </span>
+                                                        <span v-else class="text-amber-900 font-medium">
+                                                            ✕ Unchecked: Skips downloading files to disk. Only extracts page text and link URLs (saves storage & faster).
+                                                        </span>
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div class="shrink-0 text-2xl pr-1">
+                                                <span v-if="job.downloadMedia !== false">📥</span>
+                                                <span v-else>⚡</span>
+                                            </div>
+                                        </div>
                                     </div>
                                     
                                     <div class="mb-2">
-                                        <label class="block text-sm font-bold text-gray-700 mb-2">Seed URLs (One per line)</label>
-                                        <textarea v-model="job.seedUrls" rows="3" placeholder="https://college.edu/" class="w-full px-4 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none"></textarea>
+                                        <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                                            [[ job.crawlMode === 'specific' ? 'Specific Target URLs (One per line)' : 'Seed / Starting URLs (One per line)' ]]
+                                        </label>
+                                        <textarea v-model="job.seedUrls" rows="3" 
+                                            :placeholder="job.crawlMode === 'specific' ? 'https://college.edu/admissions\nhttps://college.edu/faculty\nhttps://college.edu/fee-structure' : 'https://college.edu/'" 
+                                            class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm font-mono"></textarea>
                                     </div>
                                 </div>
                                 
                                 <div class="flex flex-wrap items-center gap-3 mb-6">
-                                    <button @click="scraperForm.jobs.push({collegeName: '', seedUrls: ''})" class="px-4 py-2 bg-gray-200 text-gray-700 font-medium rounded hover:bg-gray-300 transition text-sm flex items-center gap-1.5">
+                                    <button @click="scraperForm.jobs.push({collegeName: '', seedUrls: '', crawlMode: 'deep', downloadMedia: true})" class="px-4 py-2 bg-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-300 transition text-sm flex items-center gap-1.5">
                                         <span>+ Add Another College</span>
                                     </button>
-                                    <label class="px-4 py-2 bg-blue-50 text-blue-700 border border-blue-200 font-medium rounded hover:bg-blue-100 transition text-sm cursor-pointer inline-flex items-center gap-2 shadow-sm">
+                                    <label class="px-4 py-2 bg-blue-50 text-blue-700 border border-blue-200 font-medium rounded-lg hover:bg-blue-100 transition text-sm cursor-pointer inline-flex items-center gap-2 shadow-sm">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                                        <span>📁 Import CSV File (e.g. input.csv)</span>
+                                        <span>📁 Import CSV File</span>
                                         <input type="file" accept=".csv" @change="handleCsvUpload" class="hidden">
                                     </label>
                                 </div>
                                 
-                                <button @click="startScrape" :disabled="!scraperForm.jobs.some(j => j.collegeName && j.seedUrls)" class="w-full py-3 bg-gray-800 text-white font-bold rounded shadow hover:bg-gray-900 disabled:opacity-50 transition flex items-center justify-center gap-2">
-                                    <span>🚀 Start Bulk Background Scrape ([[ scraperForm.jobs.filter(j => j.collegeName && j.seedUrls).length ]] colleges)</span>
+                                <button @click="startScrape" :disabled="!scraperForm.jobs.some(j => j.collegeName && j.seedUrls)" class="w-full py-3.5 bg-gray-900 text-white font-bold rounded-xl shadow-lg hover:bg-black disabled:opacity-50 transition flex items-center justify-center gap-2 text-base">
+                                    <span>🚀 Start Scrape Job ([[ scraperForm.jobs.filter(j => j.collegeName && j.seedUrls).length ]] colleges)</span>
                                 </button>
                             </div>
                             
@@ -734,6 +807,8 @@
                                                 <th class="p-3">#</th>
                                                 <th class="p-3">College Name</th>
                                                 <th class="p-3">Seed URLs</th>
+                                                <th class="p-3">Mode</th>
+                                                <th class="p-3">Media (PDF/Images)</th>
                                                 <th class="p-3">Status</th>
                                             </tr>
                                         </thead>
@@ -744,6 +819,19 @@
                                                 <td class="p-3 font-mono text-gray-600 truncate max-w-xs">
                                                     [[ job.seedUrls.split('\n')[0] ]]
                                                     <span v-if="job.seedUrls.split('\n').length > 1" class="text-[11px] text-emerald-600 font-sans font-medium ml-1">(+[[ job.seedUrls.split('\n').length - 1 ]] more)</span>
+                                                </td>
+                                                <td class="p-3">
+                                                    <span class="px-2 py-0.5 rounded text-[10px] font-semibold" :class="job.crawlMode === 'specific' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'">
+                                                        [[ job.crawlMode === 'specific' ? '🎯 Specific' : '🌐 Deep' ]]
+                                                    </span>
+                                                </td>
+                                                <td class="p-3">
+                                                    <label class="cursor-pointer inline-flex items-center gap-1.5 select-none">
+                                                        <input type="checkbox" v-model="job.downloadMedia" class="rounded text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5">
+                                                        <span class="text-[11px] font-semibold" :class="job.downloadMedia !== false ? 'text-emerald-700' : 'text-gray-400'">
+                                                            [[ job.downloadMedia !== false ? '📥 Enabled' : '🚫 Skip' ]]
+                                                        </span>
+                                                    </label>
                                                 </td>
                                                 <td class="p-3">
                                                     <span class="px-2 py-0.5 rounded text-[11px] font-semibold" :class="globalScraperStatus[job.collegeName] === 'running' ? 'bg-blue-100 text-blue-800' : (globalScraperStatus[job.collegeName] === 'queued' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600')">
@@ -830,7 +918,7 @@
             data() {
                 return {
                     selectedCollege: null,
-                    collegesList: [],
+                    collegesList: ({{ colleges | tojson | safe }} || []).map(name => ({ name })),
                     collegeData: null,
                     pages: [],
                     trash: [],
@@ -937,11 +1025,9 @@
                 }
             },
             mounted() {
-                this.fetchColleges();
-                this.fetchStorageInfo();
-                this.fetchQueueStatus();
                 this.pollAllScraperStatuses();
-                this.globalPollInterval = setInterval(this.pollAllScraperStatuses, 3000);
+                this.fetchStorageInfo();
+                this.globalPollInterval = setInterval(this.pollAllScraperStatuses, 6000);
             },
             beforeUnmount() {
                 if (this.statusPollInterval) clearInterval(this.statusPollInterval);
@@ -1074,19 +1160,24 @@
                     } catch(e) {}
                 },
                 async pollAllScraperStatuses() {
-                    await this.fetchColleges();
-                    await this.fetchQueueStatus();
-                    await this.fetchStorageInfo();
-                    const colleges = this.collegesList.map(c => c.name);
-                    for (const c of colleges) {
-                        try {
-                            const res = await fetch(`/api/scrape-status/${c}`);
-                            if (res.ok) {
-                                const data = await res.json();
-                                this.globalScraperStatus[c] = data.status;
-                            }
-                        } catch(e) {}
-                    }
+                    try {
+                        const [collegesRes, statusRes, queueRes] = await Promise.all([
+                            fetch('/api/colleges'),
+                            fetch('/api/all-statuses'),
+                            fetch('/api/queue-status')
+                        ]);
+                        if (collegesRes.ok) {
+                            const cdata = await collegesRes.json();
+                            this.collegesList = cdata.colleges || [];
+                        }
+                        if (statusRes.ok) {
+                            const sdata = await statusRes.json();
+                            this.globalScraperStatus = sdata.statuses || {};
+                        }
+                        if (queueRes.ok) {
+                            this.queueStatus = await queueRes.json();
+                        }
+                    } catch(e) {}
                 },
                 async loadCollege(collegeName) {
                     if (this.hasUnsavedChanges) {
@@ -1124,6 +1215,14 @@
                             const data = await res.json();
                             this.collegeData = data;
                             this.pages = JSON.parse(JSON.stringify(data.pages || []));
+                            this.scraperForm = {
+                                jobs: [{
+                                    collegeName: collegeName,
+                                    seedUrls: (data.startUrls || []).join('\n'),
+                                    crawlMode: 'deep',
+                                    downloadMedia: true
+                                }]
+                            };
                         } else {
                             if (!this.isLocked) alert("Failed to load data.");
                         }
@@ -1136,7 +1235,7 @@
                 openNewScrape() {
                     this.selectedCollege = null;
                     this.activeTab = 'scraper';
-                    this.scraperForm = { jobs: [{ collegeName: '', seedUrls: '' }] };
+                    this.scraperForm = { jobs: [{ collegeName: '', seedUrls: '', crawlMode: 'deep', downloadMedia: true }] };
                     this.scraperStatus = null;
                     if (this.statusPollInterval) clearInterval(this.statusPollInterval);
                 },
@@ -1277,13 +1376,36 @@
                 },
                 async startScrape() {
                     try {
-                        const validJobs = this.scraperForm.jobs.filter(j => j.collegeName.trim() && j.seedUrls.trim());
-                        if (validJobs.length === 0) return;
+                        const validJobs = this.scraperForm.jobs.filter(j => j.collegeName && j.collegeName.trim() && j.seedUrls && j.seedUrls.trim());
+                        if (validJobs.length === 0) {
+                            this.showToast("Please enter a College Name and at least one URL.", "warning");
+                            return;
+                        }
                         
-                        const formattedJobs = validJobs.map(j => ({
-                            collegeName: j.collegeName,
-                            seedUrls: j.seedUrls.split("\\n").filter(u => u.trim())
-                        }));
+                        // Sanitize helper: converts spaces & special chars to underscores
+                        const cleanName = (n) => (n || "").trim().replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+                        
+                        const formattedJobs = validJobs.map(j => {
+                            const cName = cleanName(j.collegeName) || j.collegeName.trim();
+                            const urls = j.seedUrls.split("\n").map(u => u.trim()).filter(u => u.length > 0);
+                            return {
+                                collegeName: cName,
+                                seedUrls: urls,
+                                crawlMode: j.crawlMode || 'deep',
+                                downloadMedia: j.downloadMedia !== false
+                            };
+                        });
+
+                        const firstCollege = formattedJobs[0].collegeName;
+
+                        // Immediately switch to Scraper view and show live status & terminal
+                        this.selectedCollege = firstCollege;
+                        this.activeTab = 'scraper';
+                        this.scraperStatus = {
+                            status: 'queued',
+                            message: `Starting scrape job for ${firstCollege}...`,
+                            logs: [`🌐 Initializing scrape job for ${firstCollege}...`, `📌 Target: ${formattedJobs[0].seedUrls[0]}`, `⚙️ Mode: ${formattedJobs[0].crawlMode}`]
+                        };
                         
                         const res = await fetch('/api/scrape/bulk', {
                             method: 'POST',
@@ -1292,18 +1414,18 @@
                         });
                         
                         const data = await res.json();
-                        if (res.ok || data.status === 'started') {
-                            validJobs.forEach(j => {
+                        if (res.ok && (data.status === 'started' || data.status === 'queued')) {
+                            formattedJobs.forEach(j => {
                                 this.globalScraperStatus[j.collegeName] = 'queued';
-                                this.startPollingStatus(j.collegeName);
                             });
-                            this.showToast("Bulk scrape started successfully!", "success");
-                            this.scraperForm.jobs = [{ collegeName: '', seedUrls: '' }];
+                            this.showToast(`Scraper launched for ${firstCollege}!`, "success");
+                            this.startPollingStatus(firstCollege);
+                            this.fetchColleges();
                         } else {
-                            this.showToast(data.message || "Failed to start scraper", "error");
+                            this.showToast(data.message || data.detail || "Failed to start scraper", "error");
                         }
                     } catch(e) {
-                        this.showToast("Error starting scraper.", "error");
+                        this.showToast("Error starting scraper: " + e.message, "error");
                         console.error(e);
                     }
                 },
@@ -1348,19 +1470,26 @@
                             const parts = parseCsvLine(lines[i]);
                             if (parts.length >= 2) {
                                 let rawName = parts[0].replace(/^["']|["']$/g, '').trim();
-                                let rawUrl = parts.slice(1).join(",").replace(/^["']|["']$/g, '').trim();
+                                let rawUrl = parts[1].replace(/^["']|["']$/g, '').trim();
+                                let rawMode = parts[2] ? parts[2].replace(/^["']|["']$/g, '').trim().toLowerCase() : 'deep';
+                                if (rawMode !== 'specific' && rawMode !== 'deep') rawMode = 'deep';
+                                
+                                let rawMedia = parts[3] ? parts[3].replace(/^["']|["']$/g, '').trim().toLowerCase() : 'true';
+                                let downloadMedia = !['false', 'no', '0', 'off'].includes(rawMedia);
+
                                 const cName = rawName.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "");
-                                const url = rawUrl;
-                                if (cName && url) {
-                                    if (!collegeMap[cName]) collegeMap[cName] = [];
-                                    if (!collegeMap[cName].includes(url)) collegeMap[cName].push(url);
+                                if (cName && rawUrl) {
+                                    if (!collegeMap[cName]) collegeMap[cName] = { urls: [], mode: rawMode, downloadMedia: downloadMedia };
+                                    if (!collegeMap[cName].urls.includes(rawUrl)) collegeMap[cName].urls.push(rawUrl);
                                 }
                             }
                         }
 
                         const newJobs = Object.keys(collegeMap).map(cName => ({
                             collegeName: cName,
-                            seedUrls: collegeMap[cName].join("\n")
+                            seedUrls: collegeMap[cName].urls.join("\n"),
+                            crawlMode: collegeMap[cName].mode || 'deep',
+                            downloadMedia: collegeMap[cName].downloadMedia !== false
                         }));
 
                         if (newJobs.length > 0) {
