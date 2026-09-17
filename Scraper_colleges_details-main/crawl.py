@@ -102,7 +102,23 @@ def is_allowed_domain(url: str, allowed_domains: set) -> bool:
 def is_valid_http_url(url: str) -> bool:
     """Check if URL is http or https."""
     parsed = urlparse(url)
-    return parsed.scheme in ("http", "https")
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+def extract_clean_url(raw: str) -> str | None:
+    """Extract valid http/https URL from raw input strings (handles CSV columns, titles, and trailing punctuation)."""
+    if not raw or not isinstance(raw, str):
+        return None
+    raw = raw.strip()
+    if is_valid_http_url(raw):
+        return raw
+    # Search for an embedded http:// or https:// URL in the string
+    match = re.search(r'https?://[^\s,;"\'<>]+', raw)
+    if match:
+        found = match.group(0).rstrip('.,;)]}')
+        if is_valid_http_url(found):
+            return found
+    return None
 
 
 def slugify_url(url: str) -> str:
@@ -186,6 +202,32 @@ async def scrape_page(
     """Visit a single page, extract content, images, and links with retry on context destruction."""
     if log_fn is None:
         log_fn = print
+
+    clean_url = extract_clean_url(url)
+    if not clean_url:
+        log_fn(f"    ⚠️ Skipped invalid non-URL target: \"{url}\"")
+        return None, []
+    url = clean_url
+
+    # Check if URL is a direct binary / document file (PDF, Doc, Image)
+    ext = get_extension(url)
+    if ext in DOCUMENT_EXTENSIONS or ext in IMAGE_EXTENSIONS:
+        if download_media:
+            log_fn(f"    📥 Downloading direct document: {os.path.basename(urlparse(url).path) or url}")
+            dl_result = await download_file(
+                http_session, url, os.path.basename(urlparse(url).path) or "document", "seed", downloads_dir, log_fn
+            )
+            if dl_result:
+                downloads_list.append(dl_result)
+        else:
+            log_fn(f"    📄 Recorded direct document link: {os.path.basename(urlparse(url).path) or url}")
+            downloads_list.append({
+                "originalUrl": url,
+                "fileName": os.path.basename(urlparse(url).path) or "document",
+                "foundOnPage": "seed",
+                "linkText": os.path.basename(urlparse(url).path) or url,
+            })
+        return None, []
 
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
@@ -396,7 +438,13 @@ async def scrape_page(
         }, new_urls_to_visit
 
     except Exception as e:
-        log_fn(f"    ❌ Error scraping {url}: {e}")
+        err_msg = str(e)
+        if "net::ERR_ABORTED" in err_msg:
+            log_fn(f"    ℹ️ Navigation aborted (non-HTML or file stream): {url}")
+        elif "Cannot navigate to invalid URL" in err_msg:
+            log_fn(f"    ⚠️ Invalid URL format skipped: \"{url}\"")
+        else:
+            log_fn(f"    ❌ Error scraping {url}: {e}")
         return None, []
 
 
@@ -412,6 +460,15 @@ async def crawl(college_name: str, start_urls: list[str], crawl_mode: str = "dee
     - download_media=False: Extracts all text & links without downloading media files to disk.
     """
     is_specific_mode = (crawl_mode == "specific")
+
+    # Clean and filter input URLs
+    cleaned_start_urls = []
+    for u in start_urls:
+        c_url = extract_clean_url(u)
+        if c_url:
+            cleaned_start_urls.append(c_url)
+
+    start_urls = cleaned_start_urls or start_urls
     allowed_domains = {urlparse(u).hostname for u in start_urls if urlparse(u).hostname}
 
     downloads_dir = os.path.join(BASE_DOWNLOADS_DIR, college_name)
@@ -558,8 +615,9 @@ async def crawl(college_name: str, start_urls: list[str], crawl_mode: str = "dee
                                 download_media=download_media,
                             )
 
-                            # If failed on the seed page (depth == 0), give it a second chance
-                            if not result and depth == 0:
+                            # If failed on the seed page (depth == 0) and is an HTML webpage, give it a second chance
+                            ext = get_extension(url)
+                            if not result and depth == 0 and ext not in DOCUMENT_EXTENSIONS and ext not in IMAGE_EXTENSIONS and is_valid_http_url(url):
                                 log_msg(f"    ⚠️ Seed page {url} failed; retrying once more with fresh navigation...")
                                 await asyncio.sleep(2)
                                 result, new_urls = await scrape_page(
