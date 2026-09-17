@@ -254,48 +254,35 @@ async def scrape_page(
         # -------------------------------------------------------------------
         clean_soup = BeautifulSoup(html_content, "html.parser")
 
-        # Generic boilerplate removal (tags)
-        for tag in clean_soup.find_all(["script", "style", "noscript", "header", "footer", "nav"]):
+        # 1. Remove non-content tags
+        for tag in clean_soup.find_all(["script", "style", "noscript", "iframe", "svg", "header", "footer", "nav"]):
             tag.decompose()
 
-        # Generic boilerplate removal (attributes/classes)
-        blacklist_patterns = re.compile(
-            r'\b(header|footer|nav|navbar|menu|sidebar|banner|cookie)\b', re.IGNORECASE
-        )
-
+        # 2. Targeted removal of boilerplate / popup overlays (NEVER decompose body, html, or main content wrappers)
         for el in clean_soup.find_all(True):
-            if el.attrs is None:
+            if el.attrs is None or el.name in ("html", "body", "main", "article"):
                 continue
 
-            el_id = el.get("id")
-            if el_id and blacklist_patterns.search(el_id):
+            el_role = el.get("role", "")
+            if el_role in ["banner", "contentinfo", "navigation"] and el.name not in ("body", "main", "article"):
                 el.decompose()
                 continue
 
-            el_classes = el.get("class")
-            if el_classes:
-                class_str = " ".join(el_classes)
-                if blacklist_patterns.search(class_str):
+            el_id = (el.get("id") or "").lower()
+            el_classes = " ".join(el.get("class") or []).lower()
+
+            # Remove cookie notices, consent popups, modal overlays
+            if any(k in el_id for k in ["cookie-notice", "cookie-banner", "cookie-consent", "gdpr-banner", "popup-overlay", "modal-backdrop"]) or \
+               any(k in el_classes for k in ["cookie-banner", "cookie-consent", "cookie-notice", "gdpr-banner", "popup-modal", "modal-backdrop"]):
+                el.decompose()
+                continue
+
+            # Remove dedicated small copyright disclaimers (< 200 chars)
+            if el.name in ("div", "p", "span") and len(el.get_text(strip=True)) < 200:
+                text_lower = el.get_text(strip=True).lower()
+                if "all rights reserved" in text_lower and ("copyright" in text_lower or "©" in text_lower):
                     el.decompose()
                     continue
-
-            el_role = el.get("role")
-            if el_role and el_role in ["banner", "contentinfo", "navigation"]:
-                el.decompose()
-                continue
-
-        # Text-based boilerplate removal (footer keywords in short blocks)
-        footer_text_patterns = re.compile(
-            r'(copyright\s*(©|c)|all rights reserved|privacy policy|quick links|terms( and | & )conditions)',
-            re.IGNORECASE,
-        )
-
-        for el in clean_soup.find_all(["div", "section"]):
-            if el.attrs is None:
-                continue
-            text = el.get_text(separator=" ", strip=True)
-            if 0 < len(text) < 1500 and footer_text_patterns.search(text):
-                el.decompose()
 
         # Extract body text
         body_text = clean_soup.get_text(separator="\n", strip=True)
